@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=3
+ReferrerUrl=https://claude.ai/chat/90535958-f837-4f57-a57d-ba54a446b1e3
+HostUrl=https://claude.ai/api/organizations/34238589-da91-4c91-b358-02156c79058a/conversations/90535958-f837-4f57-a57d-ba54a446b1e3/wiggle/download-files?paths=%2Fmnt%2Fuser-data%2Foutputs%2Fplc_emulator%2Fplc_emulator.py&paths=%2Fmnt%2Fuser-data%2Foutputs%2Fplc_emulator%2FREADME.md&paths=%2Fmnt%2Fuser-data%2Foutputs%2Fplc_emulator%2Frequirements.txt
