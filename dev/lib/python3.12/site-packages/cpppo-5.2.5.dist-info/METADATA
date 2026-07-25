@@ -1,0 +1,84 @@
+Metadata-Version: 2.2
+Name: cpppo
+Version: 5.2.5
+Summary: Cpppo is a Communication Protocol Python Parser and Originator
+Home-page: https://github.com/pjkundert/cpppo
+Author: Perry Kundert
+Author-email: perry@hardconsulting.com
+License: Dual License; GPLv3 and Proprietary
+Keywords: cpppo protocol parser DFA EtherNet/IP CIP
+Classifier: License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)
+Classifier: License :: Other/Proprietary License
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 3
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: Environment :: Console
+Classifier: Environment :: Web Environment
+Classifier: Topic :: Scientific/Engineering :: Interface Engine/Protocol Translator
+Classifier: Topic :: Text Processing :: Filters
+License-File: LICENSE
+License-File: COPYING
+Requires-Dist: crypto_licensing>=4.2.0
+Requires-Dist: greenery<3.0,>=2.0
+Provides-Extra: modbus
+Requires-Dist: minimalmodbus<3,>=2.1; extra == "modbus"
+Requires-Dist: pymodbus==3.8.1; extra == "modbus"
+Provides-Extra: logix
+Requires-Dist: pylogix>=0.7.5; extra == "logix"
+Provides-Extra: serial
+Requires-Dist: pyserial>=3.5; extra == "serial"
+Provides-Extra: dev
+Requires-Dist: build; extra == "dev"
+Requires-Dist: packaging; extra == "dev"
+Requires-Dist: pip; extra == "dev"
+Requires-Dist: setuptools; extra == "dev"
+Requires-Dist: wheel; extra == "dev"
+Provides-Extra: timestamp
+Requires-Dist: pytz-deprecation-shim; python_version >= "3.9" and extra == "timestamp"
+Requires-Dist: pytz; python_version <= "3.8" and extra == "timestamp"
+Requires-Dist: tzlocal>=1.1.1; extra == "timestamp"
+Provides-Extra: all
+Requires-Dist: pytz-deprecation-shim; python_version >= "3.9" and extra == "all"
+Requires-Dist: build; extra == "all"
+Requires-Dist: pip; extra == "all"
+Requires-Dist: packaging; extra == "all"
+Requires-Dist: setuptools; extra == "all"
+Requires-Dist: pyserial>=3.5; extra == "all"
+Requires-Dist: pytz; python_version <= "3.8" and extra == "all"
+Requires-Dist: pymodbus==3.8.1; extra == "all"
+Requires-Dist: minimalmodbus<3,>=2.1; extra == "all"
+Requires-Dist: tzlocal>=1.1.1; extra == "all"
+Requires-Dist: pylogix>=0.7.5; extra == "all"
+Requires-Dist: wheel; extra == "all"
+Provides-Extra: tests
+Requires-Dist: flake8; extra == "tests"
+Requires-Dist: pylint; extra == "tests"
+Requires-Dist: pytest>=4.6; extra == "tests"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: summary
+
+Cpppo is used to create event-driven state machines which consume a stream
+of input and generate a series of state changes, or an indication that no
+progress is possible due to (for example) exhaustion of input symbols.
+
+This is useful for creating parsers for complex grammars describing
+languages, including binary computer protocols.
+
+An example included with cpppo is an implementation of a subset of the
+EtherNet/IP CIP language used by some industrial control equipment, such as
+Rockwell's ControlLogix Controllers.  The cpppo.server.enip package can be used
+to create Python programs which can parse requests in this protocol (eg. as a
+server, to implement something like a simulated Controller) or originate
+requests in this protocol (eg. as a client, sending commands to a Controller).
+
+In addition, the ability to read, write and poll remote PLCs of
+various types including Modbus/TCP is provided.

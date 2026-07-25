@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLC Fleet Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">PLC&nbsp;FLEET&nbsp;CONTROL</span>
+    </div>
+    <div class="segment-summary" id="segmentSummary">
+      <span class="summary-chip"><span class="dot dot-run"></span><span id="countRunning">0</span> running</span>
+      <span class="summary-chip"><span class="dot dot-stop"></span><span id="countStopped">0</span> stopped</span>
+    </div>
+  </div>
+  <button class="btn btn-primary" id="newInstanceBtn">+ New PLC</button>
+</header>
+
+<main class="fleet" id="fleet">
+  <!-- cards injected by app.js -->
+</main>
+
+<div class="empty-state" id="emptyState" hidden>
+  <p class="empty-title">No PLCs on this segment yet</p>
+  <p class="empty-body">Add one to start generating protocol-aware ICS traffic for the lab.</p>
+  <button class="btn btn-primary" id="emptyStateBtn">+ New PLC</button>
+</div>
+
+<!-- New instance panel -->
+<div class="overlay" id="overlay" hidden>
+  <form class="panel" id="newInstanceForm" autocomplete="off">
+    <div class="panel-header">
+      <h2>Configure PLC</h2>
+      <button type="button" class="icon-btn" id="closePanelBtn" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="field-row">
+      <label for="f-name">Name</label>
+      <input id="f-name" name="name" placeholder="PLC-1" required maxlength="40">
+    </div>
+
+    <div class="field-grid">
+      <div class="field-row">
+        <label for="f-host">Host</label>
+        <input id="f-host" name="host" placeholder="192.168.1.181" required>
+      </div>
+      <div class="field-row">
+        <label for="f-port">Port</label>
+        <input id="f-port" name="port" type="number" min="1" max="65535" value="502" required>
+      </div>
+    </div>
+
+    <div class="field-grid">
+      <div class="field-row">
+        <label for="f-unit">Unit ID</label>
+        <input id="f-unit" name="unit_id" type="number" min="0" max="247" value="1" required>
+      </div>
+      <div class="field-row">
+        <label class="label-with-status" for="f-plc-type">
+          <span>PLC type</span>
+          <span class="field-status" id="plcTypeAvailability">Available</span>
+        </label>
+        <select id="f-plc-type" name="plc_type"></select>
+      </div>
+    </div>
+
+    <p class="field-help" id="plcTypeDetail">Loading PLC type presets…</p>
+
+    <div class="field-row">
+      <label>Protocol backend</label>
+      <div class="protocol-readout">
+        <span class="protocol-chip" id="protocolDisplay">MODBUS</span>
+        <span class="protocol-detail" id="protocolDetail">Default port 502</span>
+      </div>
+      <p class="protocol-warning" id="protocolWarning" hidden></p>
+    </div>
+
+    <div class="field-row">
+      <label class="checkbox"><input type="checkbox" id="f-override-enabled"> Override preset fingerprint strings</label>
+      <p class="field-help">Enable this to override vendor, model, or product code while keeping the preset protocol/backend.</p>
+    </div>
+
+    <div class="advanced-panel" id="advancedPanel" hidden>
+      <div class="field-grid">
+        <div class="field-row">
+          <label for="f-vendor">Vendor string</label>
+          <input id="f-vendor" name="vendor" placeholder="Generic Controls Inc.">
+        </div>
+        <div class="field-row">
+          <label for="f-model">Model string</label>
+          <input id="f-model" name="model" placeholder="GC-3000">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label for="f-product">Product code</label>
+        <input id="f-product" name="product_code" placeholder="GC3000">
+      </div>
+    </div>
+
+    <div class="field-row field-row-inline">
+      <label class="checkbox"><input type="checkbox" id="f-verbose" name="verbose"> Verbose logging</label>
+      <label class="checkbox"><input type="checkbox" id="f-autostart" name="autostart" checked> Start immediately</label>
+    </div>
+
+    <p class="privileged-note" id="privilegedNote" hidden>
+      Port &lt; 1024 needs <code>authbind</code> (or root) to bind. <span id="authbindStatus"></span>
+    </p>
+
+    <p class="form-error" id="formError" hidden></p>
+
+    <div class="panel-footer">
+      <button type="button" class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button type="submit" class="btn btn-primary">Launch</button>
+    </div>
+  </form>
+</div>
+
+<template id="cardTemplate">
+  <article class="card" data-id="">
+    <div class="card-header">
+      <span class="led" aria-hidden="true"></span>
+      <div class="card-title">
+        <div class="card-name"></div>
+        <div class="card-meta">
+          <div class="card-subtitle"></div>
+          <span class="protocol-tag"></span>
+          <span class="hmi-tag"></span>
+        </div>
+      </div>
+      <span class="status-label"></span>
+    </div>
+
+    <dl class="readout">
+      <div><dt>Address</dt><dd class="readout-address"></dd></div>
+      <div><dt>Unit ID</dt><dd class="readout-unit"></dd></div>
+      <div><dt>PID</dt><dd class="readout-pid"></dd></div>
+    </dl>
+
+    <div class="card-actions">
+      <button class="btn btn-sm btn-start">Start</button>
+      <button class="btn btn-sm btn-stop">Stop</button>
+      <button class="btn btn-sm btn-ghost btn-hmi">Open HMI</button>
+      <button class="btn btn-sm btn-ghost btn-logs">Logs</button>
+      <button class="btn btn-sm btn-danger btn-delete" aria-label="Delete">Delete</button>
+    </div>
+
+    <section class="hmi-panel" hidden>
+      <div class="hmi-panel-header">
+        <div>
+          <div class="hmi-panel-title">Operator HMI</div>
+          <div class="hmi-panel-subtitle"></div>
+        </div>
+        <div class="hmi-panel-actions">
+          <span class="hmi-link-state"></span>
+          <button class="btn btn-sm btn-ghost btn-hmi-stop">Stop HMI</button>
+          <button class="btn btn-sm btn-ghost btn-hmi-delete">Delete HMI</button>
+          <button class="btn btn-sm btn-ghost btn-hmi-close">Close</button>
+        </div>
+      </div>
+
+      <p class="hmi-banner"></p>
+
+      <div class="hmi-layout">
+        <div class="hmi-gauge-card">
+          <div class="tank-gauge">
+            <div class="tank-gauge-fill"></div>
+          </div>
+          <div class="tank-gauge-caption">Tank level</div>
+          <div class="tank-gauge-value">--.-%</div>
+        </div>
+
+        <div class="hmi-data-stack">
+          <dl class="hmi-readout-grid">
+            <div><dt>Flow</dt><dd class="hmi-flow">--.-</dd></div>
+            <div><dt>Setpoint</dt><dd class="hmi-setpoint">--.-%</dd></div>
+            <div><dt>Pump</dt><dd class="hmi-pump">OFF</dd></div>
+            <div><dt>Valve</dt><dd class="hmi-valve">CLOSED</dd></div>
+            <div><dt>Alarm Word</dt><dd class="hmi-alarm-word">0</dd></div>
+            <div><dt>Uptime</dt><dd class="hmi-uptime">0s</dd></div>
+          </dl>
+
+          <div class="alarm-strip">
+            <div class="alarm-pill alarm-high"><span class="alarm-led"></span><span>High level</span></div>
+            <div class="alarm-pill alarm-low"><span class="alarm-led"></span><span>Low level</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hmi-controls">
+        <div class="control-group">
+          <span class="control-label">Pump</span>
+          <button class="btn btn-sm btn-start btn-hmi-pump-on">Start</button>
+          <button class="btn btn-sm btn-stop btn-hmi-pump-off">Stop</button>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Valve</span>
+          <button class="btn btn-sm btn-start btn-hmi-valve-open">Open</button>
+          <button class="btn btn-sm btn-stop btn-hmi-valve-close">Close</button>
+        </div>
+        <form class="hmi-setpoint-form">
+          <label>Level setpoint</label>
+          <input class="hmi-setpoint-input" type="number" min="0" max="100" step="0.1" placeholder="50.0">
+          <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+        </form>
+      </div>
+
+      <div class="hmi-command-status"></div>
+      <pre class="hmi-log-console"></pre>
+    </section>
+
+    <pre class="log-console plc-log-console" hidden></pre>
+  </article>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

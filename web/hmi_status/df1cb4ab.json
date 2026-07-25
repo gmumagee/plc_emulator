@@ -1,0 +1,194 @@
+{
+  "hmi_id": "df1cb4ab",
+  "plc_id": "d063a8eb",
+  "name": "PLC HMI",
+  "protocol": "modbus",
+  "target": {
+    "host": "192.168.1.181",
+    "port": 502,
+    "unit_id": 1,
+    "vendor": "Generic Controls Inc.",
+    "model": "GC-3000"
+  },
+  "state": "connected",
+  "connected": true,
+  "unsupported": false,
+  "error": null,
+  "snapshot": {
+    "tank_level_pct": 60.4,
+    "flow_rate": 0.0,
+    "alarm_word": 0,
+    "uptime_s": 468,
+    "pump_run": false,
+    "valve_open": false,
+    "level_high": false,
+    "level_low": false,
+    "level_setpoint_pct": 50.0,
+    "pump_speed_pct": 50
+  },
+  "recent_events": [
+    {
+      "ts": 1784937990.0377152,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937991.0617156,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937992.0868638,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937993.1097314,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937994.130864,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937995.1530354,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937996.177169,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937997.203005,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937998.2272048,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784937999.2510736,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938000.275521,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938001.2994764,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938002.3252811,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938003.3492978,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938004.3733194,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938005.3976417,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938006.4210746,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938007.446995,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938008.4647293,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938009.4878714,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938010.511774,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938011.5362544,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938012.5607095,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938013.5846121,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938014.6090357,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938015.6328666,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938016.6581624,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938017.6809766,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938018.7047243,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938019.7291124,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938020.753104,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    },
+    {
+      "ts": 1784938021.7755823,
+      "type": "poll",
+      "message": "Poll level=60.4% flow=0.0 pump=OFF valve=CLOSED"
+    }
+  ],
+  "last_poll_ts": 1784938021.7755687,
+  "last_command_id": "5eca63f2",
+  "updated_at": 1784938022.3796535
+}

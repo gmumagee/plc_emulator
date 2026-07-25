@@ -1,0 +1,4 @@
+[console_scripts]
+enip_client = cpppo.server.enip.client:main
+enip_get_attribute = cpppo.server.enip.get_attribute:main
+enip_server = cpppo.server.enip.main:main

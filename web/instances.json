@@ -1,0 +1,17 @@
+{
+  "d063a8eb": {
+    "name": "PLC",
+    "host": "192.168.1.181",
+    "port": 502,
+    "unit_id": 1,
+    "plc_type": "generic-gc3000",
+    "vendor": "Generic Controls Inc.",
+    "model": "GC-3000",
+    "protocol": "modbus",
+    "product_code": "GC3000",
+    "verbose": true,
+    "pid": 155079,
+    "log_file": "/home/mike/projects/plc_em/web/logs/d063a8eb.log",
+    "created_at": 1784937553.4644094
+  }
+}

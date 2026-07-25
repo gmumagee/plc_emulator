@@ -1,0 +1,1023 @@
+/* ---------------------------------------------------------------------
+   PLC Fleet Control - token system
+   Design direction: literal control-panel / HMI reading, since the
+   product itself is a fleet of simulated PLCs. Dark instrument-panel
+   surface, indicator-LED status language, monospace register readouts.
+--------------------------------------------------------------------- */
+:root {
+    --bg-deep: #0d1218;
+    --bg-panel: #161e26;
+    --bg-panel-raised: #1d2731;
+    --bg-console: #0a0e13;
+    --hairline: #2a3542;
+    --hairline-soft: #202a34;
+    --text-primary: #e6edf3;
+    --text-muted: #7c8ea0;
+    --text-faint: #4d5c6c;
+    --run: #34d399;
+    --run-glow: rgba(52, 211, 153, 0.45);
+    --stop: #f0596b;
+    --stop-glow: rgba(240, 89, 107, 0.4);
+    --warn: #f5a623;
+    --live: #4fd8ff;
+    --font-display: "IBM Plex Sans", -apple-system, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+    --radius: 8px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+    }
+}
+
+html, body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(1200px 600px at 15% -10%, #131c25 0%, transparent 60%), var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+}
+
+button, input {
+    font-family: inherit;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+/* ---------------------------------------------------------------- topbar */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--hairline);
+    background: linear-gradient(180deg, #121a22, #0f161d);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.brand-mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--live);
+    box-shadow: 0 0 10px rgba(79, 216, 255, 0.7);
+    animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+.brand-text {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.segment-summary {
+    display: flex;
+    gap: 10px;
+}
+
+.summary-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 5px 12px;
+}
+
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot-run {
+    background: var(--run);
+    box-shadow: 0 0 6px var(--run-glow);
+}
+
+.dot-stop {
+    background: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- buttons */
+.btn {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+    .btn:active {
+        transform: translateY(1px);
+    }
+
+.btn-primary {
+    background: var(--live);
+    color: #06222c;
+}
+
+    .btn-primary:hover {
+        background: #7ee3ff;
+    }
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--hairline);
+}
+
+    .btn-ghost:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+    }
+
+.btn-sm {
+    padding: 6px 11px;
+    font-size: 12px;
+}
+
+.btn-start {
+    background: var(--run);
+    color: #06281c;
+}
+
+    .btn-start:hover {
+        background: #5fe3b4;
+    }
+
+    .btn-start:disabled {
+        background: var(--hairline-soft);
+        color: var(--text-faint);
+        cursor: not-allowed;
+    }
+
+.btn-stop {
+    background: transparent;
+    color: var(--stop);
+    border-color: rgba(240, 89, 107, 0.4);
+}
+
+    .btn-stop:hover {
+        background: rgba(240, 89, 107, 0.12);
+    }
+
+    .btn-stop:disabled {
+        color: var(--text-faint);
+        border-color: var(--hairline-soft);
+        cursor: not-allowed;
+    }
+
+.btn-danger {
+    background: transparent;
+    color: var(--text-faint);
+    border-color: transparent;
+    margin-left: auto;
+}
+
+    .btn-danger:hover {
+        color: var(--stop);
+    }
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+    .icon-btn:hover {
+        color: var(--text-primary);
+    }
+
+/* ---------------------------------------------------------------- fleet list */
+.fleet {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 24px 28px 48px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.card {
+    background: var(--bg-panel);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: border-color 0.2s ease;
+}
+
+    .card[data-running="true"] {
+        border-color: rgba(52, 211, 153, 0.35);
+        box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.08), 0 8px 24px -12px rgba(52, 211, 153, 0.25);
+    }
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.led {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.card[data-running="true"] .led {
+    background: var(--run);
+    box-shadow: 0 0 8px var(--run-glow);
+    animation: blink 1.6s steps(1, end) infinite;
+}
+
+@keyframes blink {
+    0%, 60% {
+        opacity: 1;
+    }
+
+    61%, 100% {
+        opacity: 0.35;
+    }
+}
+
+.card-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.card-name {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.protocol-tag,
+.protocol-chip {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--live);
+    border: 1px solid rgba(79, 216, 255, 0.28);
+    background: rgba(79, 216, 255, 0.08);
+    border-radius: 999px;
+    padding: 3px 8px;
+    white-space: nowrap;
+}
+
+.hmi-tag {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    border: 1px solid var(--hairline);
+    color: var(--text-muted);
+    background: rgba(124, 142, 160, 0.08);
+}
+
+.hmi-tag[data-state="running"] {
+    color: var(--run);
+    border-color: rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.08);
+}
+
+.hmi-tag[data-state="stopped"],
+.hmi-tag[data-state="idle"] {
+    color: var(--text-muted);
+}
+
+.hmi-tag[data-state="unsupported"] {
+    color: var(--warn);
+    border-color: rgba(245, 166, 35, 0.3);
+    background: rgba(245, 166, 35, 0.08);
+}
+
+.status-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 3px 6px;
+    flex-shrink: 0;
+}
+
+.card[data-running="true"] .status-label {
+    color: var(--run);
+    border-color: rgba(52, 211, 153, 0.35);
+}
+
+.readout {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px 12px;
+    background: var(--bg-console);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+    .readout div:first-child {
+        grid-column: 1 / -1;
+    }
+
+    .readout dt {
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        margin: 0;
+    }
+
+    .readout dd {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--live);
+        margin: 2px 0 0;
+    }
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.hmi-panel {
+    border-top: 1px solid var(--hairline-soft);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.hmi-panel-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.hmi-panel-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.hmi-panel-subtitle {
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.hmi-panel-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.hmi-link-state {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 4px 9px;
+    border: 1px solid var(--hairline);
+    color: var(--text-muted);
+    background: rgba(124, 142, 160, 0.08);
+}
+
+.hmi-link-state[data-state="connected"] {
+    color: var(--run);
+    border-color: rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.08);
+}
+
+.hmi-link-state[data-state="degraded"],
+.hmi-link-state[data-state="stopped"] {
+    color: var(--stop);
+    border-color: rgba(240, 89, 107, 0.28);
+    background: rgba(240, 89, 107, 0.08);
+}
+
+.hmi-link-state[data-state="starting"],
+.hmi-link-state[data-state="unsupported"] {
+    color: var(--warn);
+    border-color: rgba(245, 166, 35, 0.28);
+    background: rgba(245, 166, 35, 0.08);
+}
+
+.hmi-banner {
+    margin: 0;
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 12px;
+    border: 1px solid var(--hairline-soft);
+    background: rgba(10, 14, 19, 0.6);
+    color: var(--text-muted);
+}
+
+.hmi-banner[data-state="info"] {
+    border-color: rgba(79, 216, 255, 0.2);
+    color: #a7dff0;
+}
+
+.hmi-banner[data-state="warn"] {
+    border-color: rgba(245, 166, 35, 0.25);
+    color: var(--warn);
+}
+
+.hmi-banner[data-state="error"] {
+    border-color: rgba(240, 89, 107, 0.25);
+    color: var(--stop);
+}
+
+.hmi-layout {
+    display: grid;
+    grid-template-columns: minmax(160px, 220px) 1fr;
+    gap: 16px;
+    align-items: stretch;
+}
+
+.hmi-gauge-card,
+.hmi-data-stack {
+    background: var(--bg-console);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.hmi-gauge-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.tank-gauge {
+    width: 82px;
+    height: 180px;
+    border: 2px solid var(--hairline);
+    border-radius: 18px 18px 10px 10px;
+    background:
+        linear-gradient(180deg, rgba(79, 216, 255, 0.06), rgba(79, 216, 255, 0.02)),
+        rgba(7, 11, 16, 0.92);
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(79, 216, 255, 0.06);
+}
+
+.tank-gauge::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px solid rgba(79, 216, 255, 0.1);
+    border-radius: 12px;
+    pointer-events: none;
+}
+
+.tank-gauge-fill {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 0;
+    background:
+        linear-gradient(180deg, rgba(79, 216, 255, 0.95), rgba(25, 133, 176, 0.92));
+    box-shadow: 0 0 24px rgba(79, 216, 255, 0.24);
+    transition: height 0.18s ease;
+}
+
+.tank-gauge-caption {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.tank-gauge-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    color: var(--live);
+}
+
+.hmi-data-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.hmi-readout-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px 14px;
+}
+
+.hmi-readout-grid dt {
+    margin: 0;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.hmi-readout-grid dd {
+    margin: 4px 0 0;
+    font-family: var(--font-mono);
+    color: var(--live);
+    font-size: 14px;
+}
+
+.alarm-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.alarm-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    color: var(--text-muted);
+    font-size: 12px;
+    background: rgba(124, 142, 160, 0.06);
+}
+
+.alarm-pill[data-active="true"] {
+    color: var(--stop);
+    border-color: rgba(240, 89, 107, 0.28);
+    background: rgba(240, 89, 107, 0.08);
+}
+
+.alarm-led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    box-shadow: none;
+}
+
+.alarm-pill[data-active="true"] .alarm-led {
+    background: var(--stop);
+    box-shadow: 0 0 10px var(--stop-glow);
+}
+
+.hmi-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.control-group,
+.hmi-setpoint-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(10, 14, 19, 0.55);
+    border: 1px solid var(--hairline-soft);
+}
+
+.control-label,
+.hmi-setpoint-form label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.hmi-setpoint-form input {
+    width: 90px;
+    background: var(--bg-console);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 7px 9px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.hmi-controls .btn[data-current="true"] {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04);
+}
+
+.hmi-controls .btn-start[data-current="true"] {
+    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.22), 0 0 14px rgba(52, 211, 153, 0.18);
+}
+
+.hmi-controls .btn-stop[data-current="true"] {
+    background: rgba(240, 89, 107, 0.14);
+    box-shadow: 0 0 0 2px rgba(240, 89, 107, 0.16);
+}
+
+.hmi-command-status {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.hmi-command-status[data-state="pending"] {
+    color: var(--warn);
+}
+
+.hmi-log-console {
+    min-height: 110px;
+}
+
+.log-console,
+.hmi-log-console {
+    background: var(--bg-console);
+    border: 1px solid var(--hairline-soft);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: #8fa3b0;
+    max-height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+}
+
+    .log-console .lvl-warning,
+    .hmi-log-console .lvl-warning {
+        color: var(--warn);
+    }
+
+    .log-console .lvl-error,
+    .hmi-log-console .lvl-error {
+        color: var(--stop);
+    }
+
+    .log-console .lvl-info,
+    .hmi-log-console .lvl-info {
+        color: #9fb4c2;
+    }
+
+/* ---------------------------------------------------------------- empty state */
+.empty-state {
+    max-width: 420px;
+    margin: 80px auto;
+    text-align: center;
+    padding: 40px 24px;
+    border: 1px dashed var(--hairline);
+    border-radius: var(--radius);
+}
+
+.empty-title {
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+
+.empty-body {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0 0 18px;
+}
+
+/* ---------------------------------------------------------------- overlay / panel */
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 9, 13, 0.72);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 60px 20px;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+    /* .overlay's own `display: flex` above overrides the browser's default
+   [hidden] { display: none } rule (author styles beat user-agent styles
+   regardless of specificity), so the hidden attribute alone won't hide it.
+   This re-asserts display:none whenever hidden is set. */
+    .overlay[hidden] {
+        display: none;
+    }
+
+.panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    width: 100%;
+    max-width: 460px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+    .panel-header h2 {
+        font-size: 16px;
+        margin: 0;
+    }
+
+.field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.label-with-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.field-status {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    border-radius: 999px;
+    padding: 3px 8px;
+    border: 1px solid rgba(52, 211, 153, 0.28);
+    color: var(--run);
+    background: rgba(52, 211, 153, 0.08);
+}
+
+.field-status[data-state="unavailable"] {
+    border-color: rgba(245, 166, 35, 0.28);
+    color: var(--warn);
+    background: rgba(245, 166, 35, 0.08);
+}
+
+.field-help {
+    margin: -4px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+    .field-row label {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .field-row input[type="text"],
+    .field-row input[type="number"],
+    .field-row input:not([type]),
+    .field-row select {
+        background: var(--bg-console);
+        border: 1px solid var(--hairline);
+        border-radius: 6px;
+        padding: 9px 10px;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .field-row select {
+        display: block;
+        appearance: none;
+        background-image:
+            linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+            linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+        background-position:
+            calc(100% - 16px) calc(50% - 2px),
+            calc(100% - 11px) calc(50% - 2px);
+        background-repeat: no-repeat;
+        background-size: 5px 5px, 5px 5px;
+        padding-right: 28px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .field-row input:focus,
+    .field-row select:focus {
+        outline: none;
+        border-color: var(--live);
+        box-shadow: 0 0 0 3px rgba(79, 216, 255, 0.15);
+    }
+
+.field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.advanced-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: rgba(10, 14, 19, 0.55);
+}
+
+.field-row-inline {
+    flex-direction: row;
+    gap: 20px;
+    align-items: center;
+}
+
+.protocol-readout {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 10px;
+    background: var(--bg-console);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+}
+
+.protocol-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.protocol-warning {
+    margin: 0;
+    font-size: 12px;
+    color: var(--warn);
+}
+
+.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+    .checkbox input {
+        accent-color: var(--live);
+    }
+
+.privileged-note {
+    font-size: 12px;
+    color: var(--warn);
+    background: rgba(245, 166, 35, 0.08);
+    border: 1px solid rgba(245, 166, 35, 0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+}
+
+    .privileged-note code {
+        font-family: var(--font-mono);
+    }
+
+.form-error {
+    font-size: 12px;
+    color: var(--stop);
+    background: rgba(240, 89, 107, 0.08);
+    border: 1px solid rgba(240, 89, 107, 0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+}
+
+.panel-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- focus visibility */
+button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--live);
+    outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- responsive */
+@media (max-width: 560px) {
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .field-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .fleet {
+        padding: 16px;
+    }
+
+    .hmi-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .hmi-panel-header {
+        flex-direction: column;
+    }
+
+    .hmi-controls,
+    .hmi-panel-actions {
+        align-items: stretch;
+    }
+
+    .control-group,
+    .hmi-setpoint-form {
+        width: 100%;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+}

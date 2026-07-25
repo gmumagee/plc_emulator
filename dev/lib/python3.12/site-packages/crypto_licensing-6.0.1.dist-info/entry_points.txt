@@ -1,0 +1,2 @@
+[console_scripts]
+crypto-licensing = crypto_licensing.licensing.main:main

@@ -1,0 +1,114 @@
+{
+  "generic-gc3000": {
+    "vendor": "Generic Controls Inc.",
+    "model": "GC-3000",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "GC3000"
+  },
+  "generic-gc1000": {
+    "vendor": "Generic Controls Inc.",
+    "model": "GC-1000",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "GC1000"
+  },
+  "schneider-m221": {
+    "vendor": "Schneider Electric",
+    "model": "Modicon M221",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "TM221CE16R"
+  },
+  "schneider-m241": {
+    "vendor": "Schneider Electric",
+    "model": "Modicon M241",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "TM241CE40R"
+  },
+  "schneider-m251": {
+    "vendor": "Schneider Electric",
+    "model": "Modicon M251",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "TM251MESE"
+  },
+  "schneider-m262": {
+    "vendor": "Schneider Electric",
+    "model": "Modicon M262",
+    "protocol": "modbus",
+    "default_port": 502,
+    "product_code": "TM262L10MESE8T"
+  },
+  "siemens-s71200": {
+    "vendor": "Siemens",
+    "model": "S7-1200",
+    "protocol": "s7comm",
+    "default_port": 102,
+    "product_code": "6ES7 212-1AE40-0XB0"
+  },
+  "siemens-s71500": {
+    "vendor": "Siemens",
+    "model": "S7-1500",
+    "protocol": "s7comm",
+    "default_port": 102,
+    "product_code": "6ES7 515-2AM01-0AB0"
+  },
+  "siemens-logo8": {
+    "vendor": "Siemens",
+    "model": "LOGO! 8",
+    "protocol": "s7comm",
+    "default_port": 102,
+    "product_code": "6ED1052-1FB08-0BA2"
+  },
+  "ab-micrologix": {
+    "vendor": "Allen-Bradley",
+    "model": "MicroLogix 1400",
+    "protocol": "cip",
+    "default_port": 44818,
+    "product_code": "1766-L32BXB"
+  },
+  "ab-compactlogix": {
+    "vendor": "Allen-Bradley",
+    "model": "CompactLogix 5380",
+    "protocol": "cip",
+    "default_port": 44818,
+    "product_code": "5069-L320ER"
+  },
+  "ab-controllogix": {
+    "vendor": "Allen-Bradley",
+    "model": "ControlLogix 5580",
+    "protocol": "cip",
+    "default_port": 44818,
+    "product_code": "1756-L85E"
+  },
+  "omron-cp1l": {
+    "vendor": "Omron",
+    "model": "CP1L",
+    "protocol": "fins",
+    "default_port": 9600,
+    "product_code": "CP1L-M40DT-D"
+  },
+  "omron-nx1p2": {
+    "vendor": "Omron",
+    "model": "NX1P2",
+    "protocol": "fins",
+    "default_port": 9600,
+    "product_code": "NX1P2-9024DT1"
+  },
+  "mitsubishi-fx5u": {
+    "vendor": "Mitsubishi Electric",
+    "model": "FX5U",
+    "protocol": "mc",
+    "default_port": 5007,
+    "product_code": "FX5U-32MR/ES"
+  },
+  "mitsubishi-iqr": {
+    "vendor": "Mitsubishi Electric",
+    "model": "iQ-R",
+    "protocol": "mc",
+    "default_port": 5007,
+    "product_code": "R08ENCPU"
+  }
+}
