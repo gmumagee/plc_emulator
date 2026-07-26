@@ -1,0 +1,33 @@
+{
+  "id": "discharge-gate",
+  "vendor": "Yard Controls",
+  "model": "DG-12",
+  "device_class": "gate",
+  "protocol": "modbus",
+  "default_port": 502,
+  "product_code": "DG12",
+  "simulation": {
+    "type": "static",
+    "params": {}
+  },
+  "points": [
+    {
+      "id": "gate_open",
+      "label": "Gate",
+      "kind": "coil",
+      "address": 0,
+      "access": "rw",
+      "initial": false,
+      "hmi": {
+        "widget": "toggle",
+        "on_label": "Open",
+        "off_label": "Closed"
+      },
+      "fault": {
+        "modes": [
+          "stuck_actuator"
+        ]
+      }
+    }
+  ]
+}

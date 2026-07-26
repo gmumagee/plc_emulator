@@ -1,41 +1,27 @@
 # PLC Fleet Control
 
-A protocol-aware PLC emulator for an isolated ICS security testbed. It keeps
-the original Modbus/TCP simulator and now adds a Siemens S7comm backend with a
-shared process-simulation core, so traffic on the wire matches the selected
-backend instead of only changing cosmetic vendor strings.
-
-PLC identity presets now live in a single registry file, [plc_types.json](/home/mike/projects/plc_em/plc_types.json), and protocol backends are loaded as plugins from [protocols/](/home/mike/projects/plc_em/protocols).
+A protocol-aware device emulator for an isolated ICS lab. Device identity,
+process points, simulation behavior, and HMI layout now come from JSON files in
+[devices/](/home/mike/projects/plc_em/devices), so adding a new sensor, pump,
+gate, RTU, or PLC on an existing backend is a data-only change.
 
 ## Protocol support
 
-This build uses a **protocol-shaped** scope decision: real ports, believable
-traffic shape, and enough server behavior for common lab tooling to decode and
-interact with the protocol, without attempting full vendor-stack fidelity for
-every edge case.
+This repo currently uses a **protocol-shaped** scope: correct ports, believable
+traffic, and enough behavior for lab polling/writing and packet dissection,
+without attempting full vendor-stack correctness for every service edge case.
 
-| Vendor family | Protocol | Default port | Fidelity in this build | Status |
-| --- | --- | ---: | --- | --- |
-| Generic Controls Inc. | Modbus/TCP | 502 / 5020 CLI default | Existing request/response polling backend | Implemented |
-| Schneider Electric (older M221/M241/M251 style mapping) | Modbus/TCP | 502 | Same Modbus backend, vendor/model identity changes only | Implemented |
-| Siemens | S7comm | 102 | Real `python-snap7` server, DB reads/writes, full DB transfer for engineering-style burst traffic | Implemented |
-| Allen-Bradley | EtherNet/IP + CIP | 44818 / 2222 | Planned, not shipped in this pass | Not implemented |
-| Omron | FINS | 9600 | Planned, not shipped in this pass | Not implemented |
-| Mitsubishi Electric | MC Protocol | 5007 | Planned, not shipped in this pass | Not implemented |
+| Protocol | Default port | Emulator status | HMI client status | Notes |
+| --- | ---: | --- | --- | --- |
+| `modbus` | 502 | Implemented | Implemented | Request/response polling |
+| `s7comm` | 102 | Implemented | Implemented | `python-snap7` server/client |
+| `fins` | 9600 | Implemented | Not implemented | UDP-only, memory area read/write plus unsolicited memory write pushes |
+| `cip` | 44818 | Implemented | Not implemented | EtherNet/IP Register Session plus explicit messaging on TCP, `Forward Open` / `Forward Close`, and cyclic implicit I/O pushes on UDP `2222` |
+| `mc` | 5007 | Not implemented | Not implemented | Device definitions can reference it, launch is blocked |
 
-The web UI exposes the planned vendor-to-protocol mappings and default ports,
-but blocks launch for protocol backends that are not implemented in this
-revision instead of silently falling back to Modbus.
-
-For HMI simulation, this build currently implements real protocol clients for
-the shipped PLC backends:
-
-- `modbus`
-- `s7comm`
-
-Planned PLC protocols without a shipped HMI client yet (`cip`, `fins`, `mc`)
-are reported explicitly as unsupported instead of falling back to fake local
-state.
+Protocol backends are discovered from [protocols/](/home/mike/projects/plc_em/protocols)
+with the registration decorator documented in
+[protocols/base.py](/home/mike/projects/plc_em/protocols/base.py).
 
 ## Setup
 
@@ -45,301 +31,329 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Dependencies currently used by shipped backends:
+## Running the app
 
-- `pymodbus==3.8.6` for Modbus/TCP
-- `python-snap7==3.1.0` for the Siemens S7 server
-- `flask>=3.0,<4.0` for the fleet UI
-
-## PLC registry and backend plugins
-
-[plc_types.json](/home/mike/projects/plc_em/plc_types.json) is the source of
-truth for:
-
-- vendor string
-- model string
-- protocol backend name
-- default port
-- product code
-
-Both the web UI and `plc_emulator.py` read this same file. Adding a new
-vendor/model on an existing protocol is a data change, not a JS/Python code
-change.
-
-Protocol implementations live under [protocols/](/home/mike/projects/plc_em/protocols):
-
-- [protocols/base.py](/home/mike/projects/plc_em/protocols/base.py) documents the backend contract
-- [protocols/__init__.py](/home/mike/projects/plc_em/protocols/__init__.py) auto-discovers modules and registers them with `@register_protocol(...)`
-- adding a new `protocols/<name>.py` module makes that backend available without editing the dispatcher in [plc_emulator.py](/home/mike/projects/plc_em/plc_emulator.py)
-
-## Running a single emulator
-
-Protocol can be selected explicitly with `--protocol`:
-
-```bash
-python3 plc_emulator.py --protocol modbus --host 0.0.0.0 --port 5020 --unit-id 1 --name PLC-1
-python3 plc_emulator.py --protocol s7comm --host 0.0.0.0 --port 102  --name S7-PLC-1 --vendor Siemens --model S7-1500
-```
-
-Or resolve everything from a registry preset with `--plc-type`:
-
-```bash
-python3 plc_emulator.py --plc-type generic-gc3000 --host 0.0.0.0 --port 5020 --unit-id 1 --name PLC-1
-python3 plc_emulator.py --plc-type siemens-s71500 --host 0.0.0.0 --port 102 --name S7-PLC-1
-```
-
-If you omit `--protocol`, the emulator derives it from the vendor string:
-
-- `Generic Controls Inc.` and `Schneider Electric` -> `modbus`
-- `Siemens` -> `s7comm`
-- all other vendors currently resolve to their native protocol names, but the
-  process exits with an explicit "not implemented" error in this build
-
-Default ports by protocol:
-
-- `modbus` -> `5020` from the CLI to avoid low-port privilege requirements by default
-- `s7comm` -> `102`
-- `cip` -> `44818`
-- `fins` -> `9600`
-- `mc` -> `5007`
-
-Use low ports such as `502` or `102` with root, `authbind`, or
-`setcap cap_net_bind_service+ep $(which python3)` as appropriate for your lab.
-
-## Shared process model
-
-All implemented backends expose the same simulated process:
-
-- inlet pump run command
-- outlet valve command
-- level setpoint
-- pump speed setpoint
-- current tank level
-- current inlet flow
-- alarm word
-- uptime
-
-The physics loop models a single tank:
-
-- pump flow increases level according to the speed setpoint
-- opening the valve drains the tank
-- high/low float switches trip at 90% / 10%
-- values update continuously in the background so polling clients see changing telemetry
-
-## Modbus/TCP map
-
-The Modbus backend preserves the original addressing model.
-
-### Coils
-
-- `0` `PUMP_RUN`
-- `1` `VALVE_OPEN`
-- `2` `ALARM_ACK`
-
-### Discrete inputs
-
-- `0` `LEVEL_HIGH_SW`
-- `1` `LEVEL_LOW_SW`
-- `2` `E_STOP`
-
-### Holding registers
-
-- `0` `LEVEL_SETPOINT` (0-1000 => 0.0-100.0%)
-- `1` `PUMP_SPEED_SP` (0-100)
-- `2` `SCAN_TIME_MS`
-
-### Input registers
-
-- `0` `TANK_LEVEL`
-- `1` `FLOW_RATE`
-- `2` `ALARM_WORD`
-- `3` `UPTIME_S`
-
-Quick test:
-
-```python
-from pymodbus.client import ModbusTcpClient
-
-c = ModbusTcpClient("127.0.0.1", port=5020)
-c.connect()
-print(c.read_input_registers(0, count=4, slave=1).registers)
-c.write_coil(1, True, slave=1)
-c.close()
-```
-
-## Siemens S7comm map
-
-The Siemens backend uses the pure-Python `python-snap7` server on TCP port
-`102` by default. It exposes three DBs:
-
-### DB1: process telemetry
-
-- `DB1.DBW0` tank level (`LEVEL_X10`)
-- `DB1.DBW2` flow rate (`FLOW_X10`)
-- `DB1.DBW4` alarm word
-- `DB1.DBW6` uptime seconds
-- `DB1.DBX8.0` high-level switch
-- `DB1.DBX8.1` low-level switch
-- `DB1.DBX8.2` e-stop
-
-### DB2: operator controls
-
-- `DB2.DBX0.0` pump run command
-- `DB2.DBX0.1` valve open command
-- `DB2.DBX0.2` alarm acknowledge pulse
-- `DB2.DBW2` level setpoint
-- `DB2.DBW4` pump speed setpoint
-- `DB2.DBW6` cosmetic scan time
-
-### DB900: engineering transfer block
-
-- `4096` bytes
-- starts with ASCII metadata plus current process values
-- intended for full-DB transfers so exercises can generate a large burst that
-  looks like engineering-station activity
-
-Quick test with `python-snap7`:
-
-```python
-import snap7
-
-client = snap7.Client()
-client.connect("127.0.0.1", 0, 0, tcp_port=1102)  # use 102 if you bound the native port
-print(client.db_read(1, 0, 10))
-print(len(client.db_get(900)))
-client.disconnect()
-client.destroy()
-```
-
-## Web control panel
-
-Run the fleet UI:
+Run the web UI from the repo root:
 
 ```bash
 python3 web/app.py --host 127.0.0.1 --port 8080
 ```
 
-Open `http://127.0.0.1:8080`.
+Then open `http://127.0.0.1:8080`.
 
-What the UI now does:
+Register a user at `/register`, then sign in at `/login`.
 
-- fetches PLC presets from `GET /api/plc-types`
-- shows a single `PLC type` dropdown built from the shared registry
-- resolves the implied protocol backend and default port from the selected preset
-- allows optional vendor/model/product-code overrides for intentionally skewed fingerprints without changing the backend
-- blocks launch for presets whose backend module is not installed
-- stores the selected `plc_type` in `instances.json` while still loading older entries that only have vendor/model/protocol fields
-- adds a per-PLC `Open HMI` action that launches a separate protocol client subprocess on demand
+Run a single emulator directly:
+
+```bash
+python3 plc_emulator.py --device-type generic-gc3000 --host 127.0.0.1 --port 5020 --unit-id 1 --name PLC-1
+python3 plc_emulator.py --device-type siemens-s71200 --host 127.0.0.1 --port 1102 --name S7-1
+```
+
+`--plc-type` is still accepted as a legacy alias for `--device-type`.
+
+Low ports such as `102` and `502` still need root, `authbind`, or equivalent.
+The web launcher reuses the existing `authbind` handling automatically.
+
+## User accounts
+
+This build now uses local username/password accounts with:
+
+- password hashing via Werkzeug's `generate_password_hash` / `check_password_hash`
+- session management via `Flask-Login`
+- CSRF protection on login, logout, and all state-changing saved-config and fleet actions
+- a short in-memory failed-login lockout to avoid unthrottled password guessing
+
+Account and saved-config data live in SQLite at
+[web/fleet_control.db](/home/mike/projects/plc_em/web/fleet_control.db). That
+file is outside [web/static/](/home/mike/projects/plc_em/web/static), so it is
+not exposed as a static download by the Flask app.
+
+Saved device configs are scoped to the logged-in user only. Each user sees and
+manages only their own saved library. Live fleet instances remain shared and
+visible to every authenticated user on the lab segment so everyone can still
+see what is actually running on the wire.
+
+Important security note: authentication over plain HTTP is not enough. If you
+use real logins, run this behind HTTPS so usernames, passwords, and session
+cookies are not sent in cleartext. A reverse proxy with a certificate, even a
+self-signed lab certificate, is the minimum sane deployment once credentials
+exist.
+
+## Bulk-Provisioning authbind
+
+To provision every privileged port referenced by the current device library in one pass, run:
+
+```bash
+sudo ./dev/bin/python scripts/setup_authbind.py
+```
+
+This script scans [devices/](/home/mike/projects/plc_em/devices) with the same
+device loader used by the app, collects every unique `default_port` below
+`1024`, and provisions `/etc/authbind/byport/<port>` entries only where they
+are missing or misconfigured for the current user.
+
+Use it so a lab operator does not have to hand-run the `touch` / `chown` /
+`chmod` sequence every time a new device definition introduces a new low port.
+Re-run it after pulling new device definitions from version control, for
+example after a `git pull` that adds new files under `devices/`, because a new
+privileged port will fail to launch until authbind has been provisioned for it.
+
+Running the script twice is safe: the second run is a no-op and reports already
+configured ports as skipped.
+
+## Device definitions
+
+Each file under [devices/](/home/mike/projects/plc_em/devices) defines one
+device type. The web UI serves them through `GET /api/device-types`, and both
+[plc_emulator.py](/home/mike/projects/plc_em/plc_emulator.py) and
+[hmi_client.py](/home/mike/projects/plc_em/hmi_client.py) resolve the selected
+device from the same loader in [device_defs.py](/home/mike/projects/plc_em/device_defs.py).
+
+Schema shape:
+
+```json
+{
+  "id": "siemens-s7-1200-tank",
+  "vendor": "Siemens",
+  "model": "S7-1200",
+  "device_class": "plc",
+  "protocol": "s7comm",
+  "default_port": 102,
+  "product_code": "6ES7 212-1AE40-0XB0",
+  "simulation": {
+    "type": "tank_pump_valve",
+    "params": {
+      "fill_rate": 8.0,
+      "drain_rate": 6.0
+    }
+  },
+  "points": [
+    {
+      "id": "pump_run",
+      "label": "Pump",
+      "kind": "coil",
+      "address": 0,
+      "access": "rw",
+      "hmi": {
+        "widget": "toggle",
+        "on_label": "Running",
+        "off_label": "Stopped"
+      }
+    }
+  ]
+}
+```
+
+Top-level fields:
+
+- `id`: stable identifier used by the CLI, API, and registry
+- `vendor`, `model`, `product_code`: identity strings shown in cards and exposed by supported protocols
+- `device_class`: high-level category such as `plc`, `sensor`, `pump`, `gate`, `rtu`, `ied`
+- `protocol`: backend name, matched against registered protocol modules
+- `default_port`: suggested launch port in the UI
+- `simulation`: one of the built-in simulation modes below
+- `points`: the device’s addressable telemetry and controls
+- `points[].fault`: optional fault-injection capabilities for that point
+
+Malformed JSON files are rejected individually. They show up in
+`GET /api/device-types` under `errors` instead of crashing the whole app.
+
+Point-level fault schema:
+
+```json
+{
+  "id": "level",
+  "label": "Level",
+  "kind": "input_register",
+  "address": 0,
+  "access": "ro",
+  "hmi": { "widget": "gauge" },
+  "fault": {
+    "modes": ["freeze", "drift", "noise"]
+  }
+}
+```
+
+Supported fault modes:
+
+- `freeze`: the reported point value holds its last value while the underlying simulation keeps changing
+- `drift`: the reported point value diverges from the true value over time
+- `noise`: random jitter is added to the reported point value
+- `stuck_actuator`: a writable point acknowledges writes but the physical simulation does not follow them
+
+## Built-in simulation types
+
+The loader currently supports four built-in simulation modes:
+
+- `static`: values stay at their current or initial state unless a writable point is changed externally
+- `random_walk`: numeric telemetry drifts within configured bounds, useful for standalone sensors
+- `tank_pump_valve`: the existing tank physics model, now parameterized by device JSON
+- `actuator_feedback`: writable actuator commands drive derived read-only feedback without a full tank model
+
+Examples in this repo:
+
+- [devices/level-sensor.json](/home/mike/projects/plc_em/devices/level-sensor.json) uses `random_walk`
+- [devices/inlet-pump.json](/home/mike/projects/plc_em/devices/inlet-pump.json) uses `actuator_feedback`
+- [devices/discharge-gate.json](/home/mike/projects/plc_em/devices/discharge-gate.json) uses `static`
+- the vendor PLC presets use `tank_pump_valve`
+
+## Point kinds and protocol mapping
+
+Generic point kinds currently supported by the shared runtime:
+
+- `coil`
+- `discrete_input`
+- `holding_register`
+- `input_register`
+
+How implemented backends map them:
+
+- `modbus`: direct Modbus/TCP coils, discrete inputs, holding registers, and input registers
+- `s7comm`: control bits/registers live in DB2, process telemetry lives in DB1, and an engineering text snapshot is exposed in DB900
+- `fins`: UDP memory-area commands `0101` and `0102`; `coil` maps to CIO bit area `0x30`, `discrete_input` to WR bit area `0x31`, `holding_register` to DM word area `0x82`, and `input_register` to WR word area `0xB1`
+- `cip`: EtherNet/IP explicit messaging exposes the standard Identity object plus a lab point object class `0x70` where each point instance exposes attribute `1` as its raw value; Assembly instance `100` packs writable coils/registers and Assembly instance `101` packs read-only discrete inputs/input registers for cyclic UDP production
+
+FINS backend scope:
+
+- transport: FINS/UDP on port `9600`
+- implemented commands: `0101` Memory Area Read and `0102` Memory Area Write
+- unsolicited behavior: the emulator sends periodic unsolicited `0102` memory writes for read-only telemetry to the last peer that successfully polled it
+- fallback when no peer has polled yet: unsolicited sends are suppressed until the emulator has seen a valid inbound FINS request
+- out of scope in this pass: FINS/TCP and the broader Omron command set beyond memory-area access
+
+CIP backend scope:
+
+- transport: EtherNet/IP encapsulation on TCP `44818` plus implicit I/O production on UDP `2222`
+- implemented encapsulation commands: `Register Session`, `Unregister Session`, `List Services`, `List Identity`, and `SendRRData`
+- implemented CIP services: `Get Attribute All`, `Get Attribute Single`, `Set Attribute Single`, `Forward Open`, and `Forward Close`
+- explicit object model: Identity object class `0x01`, Assembly object class `0x04`, Connection Manager class `0x06`, and a lab point object class `0x70` for per-point reads and writes
+- cyclic behavior: after a successful `Forward Open`, the emulator pushes the current produced assembly to the originator over UDP at the negotiated RPI without waiting for a read request each cycle
+- verification used in this repo: `cpppo` client reads and writes explicit attributes successfully; a raw EtherNet/IP client script was used to verify `Forward Open`, repeated UDP I/O packets, and `Forward Close`
+- out of scope in this pass: full CIP object-model correctness, large `Forward Open`, connected explicit messaging, and originator-consumed UDP writes back into the emulator
+
+The runtime stores engineering values internally and converts to raw wire values
+with each point’s `scale`. For example, `scale: 0.1` means a raw register value
+of `523` is rendered as `52.3`.
+
+## HMI widget vocabulary
+
+The web HMI and `hmi_client.py` are driven from `points[].hmi.widget`.
+
+Supported widgets:
+
+- `toggle`: two-state writable control rendered as paired buttons
+- `setpoint`: numeric writable control with explicit Apply-button semantics
+- `gauge`: large read-only numeric display
+- `readout`: compact read-only value tile
+- `alarm_bits`: bitfield decoded into labeled alarm pills
+
+If a point omits `hmi`, it is still exposed on the wire but not rendered in the
+operator HMI.
 
 ## HMI simulation
 
-Each HMI is a standalone client process started by
-[hmi_client.py](/home/mike/projects/plc_em/hmi_client.py). It does not read the
-PLC emulator's in-memory state directly. Instead, it:
+Each HMI is a separate client subprocess started on demand from a device card.
+It does not read emulator memory directly. It:
 
-- polls the target PLC over the real wire protocol on a timer
-- translates operator actions into real protocol writes
-- writes a JSON status snapshot for the web UI to render
-- keeps its own subprocess log so HMI traffic is inspectable separately from the PLC log
+- polls the target over the real protocol client
+- writes operator actions back over the same protocol
+- writes a status JSON file for the web UI to render
+- logs its own poll and command activity
 
 Current HMI client support:
 
-- Modbus/TCP via `pymodbus`
-- Siemens S7comm via `python-snap7`
-- CIP / FINS / MC are not implemented on the HMI side in this revision
+- `modbus`
+- `s7comm`
 
-How to launch one:
+Runtime files:
 
-- start a PLC from the fleet view
-- click `Open HMI` on that PLC card
-- the UI opens an inline HMI panel and begins polling `GET /api/hmi/<id>/status`
+- status snapshots: [web/hmi_status/](/home/mike/projects/plc_em/web/hmi_status)
+- command queues: [web/hmi_commands/](/home/mike/projects/plc_em/web/hmi_commands)
+- HMI logs: [web/hmi_logs/](/home/mike/projects/plc_em/web/hmi_logs)
 
-The HMI panel sends commands back through `POST /api/hmi/<id>/command`. The web
-app uses a small file-backed command queue instead of a per-HMI HTTP listener:
+## Fault injection
 
-- `web/hmi_commands/<hmi_id>.jsonl` receives operator commands from Flask
-- the HMI subprocess polls that queue and performs the real protocol write
+The emulator can now inject live process and sensor faults into a running
+instance without restarting it. This is deliberately separate from the
+student-facing fleet cards: active faults are not shown inline on the normal
+device list, so they remain discoverable by observing real protocol traffic and
+process behavior instead of by spotting a UI badge.
 
-This was chosen to stay aligned with the existing subprocess/log/status-file
-model and avoid allocating an extra listener port for every HMI instance.
+Control surface:
 
-Files written by the HMI subsystem:
+- top bar: `Exercise Setup`
+- API: `POST /api/instances/<id>/fault`
+- API: `POST /api/instances/<id>/fault/clear`
+- API: `GET /api/instances/<id>/faults`
 
-- logs: [web/hmi_logs](/home/mike/projects/plc_em/web/hmi_logs)
-- status JSON for the UI: [web/hmi_status](/home/mike/projects/plc_em/web/hmi_status)
-- command queue files: [web/hmi_commands](/home/mike/projects/plc_em/web/hmi_commands)
+Each PLC process gets:
 
-Lifecycle behavior:
+- a fault command queue under [web/fault_commands/](/home/mike/projects/plc_em/web/fault_commands)
+- a fault status file under [web/fault_status/](/home/mike/projects/plc_em/web/fault_status)
 
-- stopping a PLC while its HMI is still running leaves the HMI up, and it reports a clear degraded/unreachable state from its next failed poll
-- deleting a PLC cascades to any attached HMI, stopping and removing the HMI automatically
+Example fault request:
 
-Implementation note:
+```json
+{
+  "point": "level",
+  "mode": "freeze",
+  "params": {}
+}
+```
 
-- `web/app.py` now launches the emulator with the same Python interpreter that
-  started the web app (`sys.executable`), so the subprocess uses the active venv
-  instead of assuming a global `python3` with the right packages installed
+Behavior notes:
 
-## Verification completed in this build
+- `freeze`, `drift`, and `noise` affect the value clients read from the device, not the underlying process model
+- `stuck_actuator` keeps protocol acknowledgments normal while the actual simulation ignores the command, so the anomaly is only visible by comparing commanded state against derived physical behavior
 
-Verified locally on Friday, July 24, 2026:
+Worked lab example:
 
-- Modbus backend still answers `pymodbus` reads and writes
-- S7 backend answers `python-snap7` DB reads
-- S7 backend serves the large `DB900` transfer block via `db_get(900)`
-- web-created Siemens instances launch with `--protocol s7comm` and can be read
-  by a real `python-snap7` client
-- the web UI reads `/api/plc-types` instead of a hardcoded vendor/model map
-- a new preset-only entry (`schneider-m262`) appears in the UI with no frontend code changes
-- the example [protocols/stublog.py](/home/mike/projects/plc_em/protocols/stublog.py) backend is auto-discovered without editing [plc_emulator.py](/home/mike/projects/plc_em/plc_emulator.py)
-- legacy `instances.json` entries without `plc_type` are backfilled from vendor/model/protocol on load
-- a web-launched Modbus HMI reaches `connected` state, produces live snapshots, and drives real PLC writes through `POST /api/hmi/<id>/command`
-- stopping the target PLC leaves the HMI running but moves it into a degraded/unreachable state
-- deleting a PLC cascades to its attached HMI and removes the HMI registry entry
+1. Start a tank-model device and confirm `level` rises normally.
+2. Open `Exercise Setup`, target that instance, and inject `freeze` on `level`.
+3. Poll the PLC with a real client and observe that `level` stops changing even though `uptime` and the rest of the process continue.
+4. Clear the fault and observe the reported `level` jump back to the real process state.
+5. Inject `stuck_actuator` on `pump_run`, write the pump coil off from a client, and observe that the write succeeds while flow and tank behavior prove the process never obeyed it.
 
-Packet capture note:
+## Adding a new device
 
-- loopback `tcpdump` capture was attempted to verify live HMI polling/write
-  traffic on the wire, but this environment denied capture permissions on
-  `lo`, so Wireshark/tcpdump verification was not completed here
+### Existing protocol backend
+
+If the new device uses an existing backend, add one JSON file to
+[devices/](/home/mike/projects/plc_em/devices) and restart the web app. No JS or
+Python code changes should be required.
+
+Worked example: [devices/inlet-pump.json](/home/mike/projects/plc_em/devices/inlet-pump.json)
+
+- `device_class` is `pump`
+- `simulation.type` is `actuator_feedback`
+- `pump_run` is a writable `toggle`
+- `pump_speed` is a writable `setpoint`
+- `flow_rate` is a read-only `readout`
+- `motor_status` is an `alarm_bits` field
+
+That one file is enough for the device to:
+
+- appear in the device dropdown
+- launch on the Modbus backend
+- expose the declared points on the wire
+- render an HMI with the right controls and feedback
+
+### New protocol backend
+
+If the new device needs a genuinely new protocol:
+
+1. Add a backend module under [protocols/](/home/mike/projects/plc_em/protocols) and register it with `@register_protocol(...)`.
+2. Follow the backend contract documented in [protocols/base.py](/home/mike/projects/plc_em/protocols/base.py).
+3. Reference that protocol name from one or more device JSON files in [devices/](/home/mike/projects/plc_em/devices).
+
+`plc_emulator.py` discovers registered backends automatically. No manual
+dispatcher edits are required.
 
 ## Safety note
 
 These emulators bind network listeners and intentionally generate ICS protocol
 traffic. Keep them on an isolated lab segment or management-only interface, not
-on a network with a route to production or the internet.
-
-## Adding a new PLC type
-
-### Existing protocol backend
-
-If the new PLC uses an already-implemented protocol, edit
-[plc_types.json](/home/mike/projects/plc_em/plc_types.json) only:
-
-```json
-"schneider-m262": {
-  "vendor": "Schneider Electric",
-  "model": "Modicon M262",
-  "protocol": "modbus",
-  "default_port": 502,
-  "product_code": "TM262L10MESE8T"
-}
-```
-
-Restart the web app and the new preset will appear automatically in the `PLC
-type` dropdown. The emulator CLI can also launch it directly with
-`--plc-type schneider-m262`.
-
-### New protocol backend
-
-If the new PLC needs a genuinely new protocol:
-
-1. Create `protocols/<name>.py`.
-2. Implement a class with `async def serve(config, image)`.
-3. Decorate it with `@register_protocol("<name>")`.
-4. Add one or more entries to `plc_types.json` that reference that protocol name.
-
-Use [protocols/modbus.py](/home/mike/projects/plc_em/protocols/modbus.py),
-[protocols/s7comm.py](/home/mike/projects/plc_em/protocols/s7comm.py), and
-[protocols/base.py](/home/mike/projects/plc_em/protocols/base.py) as the
-template.
+on a network with a route to production or the internet. The new login system
+protects access to the UI, but it does not replace network isolation, and it is
+only meaningful when the app is served over HTTPS.

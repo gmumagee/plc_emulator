@@ -1,0 +1,99 @@
+{
+  "id": "inlet-pump",
+  "vendor": "Flow Dynamics",
+  "model": "IP-88",
+  "device_class": "pump",
+  "protocol": "modbus",
+  "default_port": 502,
+  "product_code": "IP88",
+  "simulation": {
+    "type": "actuator_feedback",
+    "params": {
+      "max_flow": 12.0,
+      "status_run_bit": 0,
+      "status_fault_bit": 1
+    }
+  },
+  "points": [
+    {
+      "id": "pump_run",
+      "label": "Pump",
+      "kind": "coil",
+      "address": 0,
+      "access": "rw",
+      "initial": false,
+      "hmi": {
+        "widget": "toggle",
+        "on_label": "Running",
+        "off_label": "Stopped"
+      },
+      "fault": {
+        "modes": [
+          "stuck_actuator"
+        ]
+      }
+    },
+    {
+      "id": "pump_speed",
+      "label": "Pump Speed",
+      "kind": "holding_register",
+      "address": 0,
+      "access": "rw",
+      "unit": "%",
+      "initial": 60.0,
+      "hmi": {
+        "widget": "setpoint"
+      },
+      "fault": {
+        "modes": [
+          "stuck_actuator"
+        ]
+      }
+    },
+    {
+      "id": "flow_rate",
+      "label": "Flow Rate",
+      "kind": "input_register",
+      "address": 0,
+      "access": "ro",
+      "scale": 0.1,
+      "unit": "L/s",
+      "hmi": {
+        "widget": "readout"
+      },
+      "fault": {
+        "modes": [
+          "freeze",
+          "drift",
+          "noise"
+        ]
+      }
+    },
+    {
+      "id": "motor_status",
+      "label": "Motor Status",
+      "kind": "input_register",
+      "address": 1,
+      "access": "ro",
+      "hmi": {
+        "widget": "alarm_bits",
+        "bits": [
+          {
+            "bit": 0,
+            "label": "Running"
+          },
+          {
+            "bit": 1,
+            "label": "Fault"
+          }
+        ]
+      },
+      "fault": {
+        "modes": [
+          "freeze",
+          "noise"
+        ]
+      }
+    }
+  ]
+}

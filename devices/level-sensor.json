@@ -1,0 +1,43 @@
+{
+  "id": "level-sensor",
+  "vendor": "Lab Instruments",
+  "model": "LT-200",
+  "device_class": "sensor",
+  "protocol": "modbus",
+  "default_port": 502,
+  "product_code": "LT200",
+  "simulation": {
+    "type": "random_walk",
+    "params": {
+      "point_bounds": {
+        "level": {
+          "min": 44.0,
+          "max": 56.0,
+          "step": 0.35
+        }
+      }
+    }
+  },
+  "points": [
+    {
+      "id": "level",
+      "label": "Level",
+      "kind": "input_register",
+      "address": 0,
+      "access": "ro",
+      "scale": 0.1,
+      "unit": "%",
+      "initial": 50.0,
+      "hmi": {
+        "widget": "gauge"
+      },
+      "fault": {
+        "modes": [
+          "freeze",
+          "drift",
+          "noise"
+        ]
+      }
+    }
+  ]
+}

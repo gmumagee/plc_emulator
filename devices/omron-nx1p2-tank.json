@@ -1,0 +1,188 @@
+{
+  "id": "omron-nx1p2",
+  "vendor": "Omron",
+  "model": "NX1P2",
+  "device_class": "plc",
+  "protocol": "fins",
+  "default_port": 9600,
+  "product_code": "NX1P2-9024DT1",
+  "simulation": {
+    "type": "tank_pump_valve",
+    "params": {
+      "fill_rate": 8.0,
+      "drain_rate": 6.0
+    }
+  },
+  "points": [
+    {
+      "id": "pump_run",
+      "label": "Pump",
+      "kind": "coil",
+      "address": 0,
+      "access": "rw",
+      "initial": true,
+      "hmi": {
+        "widget": "toggle",
+        "on_label": "Running",
+        "off_label": "Stopped"
+      },
+      "fault": {
+        "modes": [
+          "stuck_actuator"
+        ]
+      }
+    },
+    {
+      "id": "valve_open",
+      "label": "Valve",
+      "kind": "coil",
+      "address": 1,
+      "access": "rw",
+      "initial": false,
+      "hmi": {
+        "widget": "toggle",
+        "on_label": "Open",
+        "off_label": "Closed"
+      },
+      "fault": {
+        "modes": [
+          "stuck_actuator"
+        ]
+      }
+    },
+    {
+      "id": "alarm_ack",
+      "label": "Alarm Ack",
+      "kind": "coil",
+      "address": 2,
+      "access": "rw",
+      "initial": false
+    },
+    {
+      "id": "level_high_sw",
+      "label": "High Level Switch",
+      "kind": "discrete_input",
+      "address": 0,
+      "access": "ro"
+    },
+    {
+      "id": "level_low_sw",
+      "label": "Low Level Switch",
+      "kind": "discrete_input",
+      "address": 1,
+      "access": "ro"
+    },
+    {
+      "id": "e_stop",
+      "label": "E-Stop",
+      "kind": "discrete_input",
+      "address": 2,
+      "access": "ro",
+      "initial": false
+    },
+    {
+      "id": "setpoint",
+      "label": "Setpoint",
+      "kind": "holding_register",
+      "address": 0,
+      "access": "rw",
+      "scale": 0.1,
+      "unit": "%",
+      "initial": 50.0,
+      "hmi": {
+        "widget": "setpoint"
+      }
+    },
+    {
+      "id": "pump_speed",
+      "label": "Pump Speed",
+      "kind": "holding_register",
+      "address": 1,
+      "access": "rw",
+      "unit": "%",
+      "initial": 50.0
+    },
+    {
+      "id": "scan_time_ms",
+      "label": "Scan Time",
+      "kind": "holding_register",
+      "address": 2,
+      "access": "rw",
+      "unit": "ms",
+      "initial": 100.0
+    },
+    {
+      "id": "level",
+      "label": "Level",
+      "kind": "input_register",
+      "address": 0,
+      "access": "ro",
+      "scale": 0.1,
+      "unit": "%",
+      "initial": 30.0,
+      "hmi": {
+        "widget": "gauge"
+      },
+      "fault": {
+        "modes": [
+          "freeze",
+          "drift",
+          "noise"
+        ]
+      }
+    },
+    {
+      "id": "flow",
+      "label": "Flow",
+      "kind": "input_register",
+      "address": 1,
+      "access": "ro",
+      "scale": 0.1,
+      "unit": "%/s",
+      "hmi": {
+        "widget": "readout"
+      },
+      "fault": {
+        "modes": [
+          "freeze",
+          "noise"
+        ]
+      }
+    },
+    {
+      "id": "alarms",
+      "label": "Alarms",
+      "kind": "input_register",
+      "address": 2,
+      "access": "ro",
+      "hmi": {
+        "widget": "alarm_bits",
+        "bits": [
+          {
+            "bit": 0,
+            "label": "High level"
+          },
+          {
+            "bit": 1,
+            "label": "Low level"
+          },
+          {
+            "bit": 2,
+            "label": "E-Stop"
+          }
+        ]
+      }
+    },
+    {
+      "id": "uptime",
+      "label": "Uptime",
+      "kind": "input_register",
+      "address": 3,
+      "access": "ro",
+      "hmi": {
+        "widget": "readout",
+        "format": "duration"
+      }
+    }
+  ]
+}

@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PLC Fleet Control</title>
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Device Fleet Control</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -15,43 +16,76 @@
   <div class="topbar-left">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-text">PLC&nbsp;FLEET&nbsp;CONTROL</span>
+      <span class="brand-text">DEVICE&nbsp;FLEET&nbsp;CONTROL</span>
     </div>
     <div class="segment-summary" id="segmentSummary">
       <span class="summary-chip"><span class="dot dot-run"></span><span id="countRunning">0</span> running</span>
       <span class="summary-chip"><span class="dot dot-stop"></span><span id="countStopped">0</span> stopped</span>
     </div>
   </div>
-  <button class="btn btn-primary" id="newInstanceBtn">+ New PLC</button>
+  <div class="topbar-right">
+    <div class="user-chip">Signed in as <strong>{{ current_user.username }}</strong></div>
+    <button class="btn btn-ghost" id="openFaultLabBtn">Exercise Setup</button>
+    <form class="logout-form" method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-ghost" type="submit">Log out</button>
+    </form>
+    <button class="btn btn-primary" id="newInstanceBtn">+ New Device</button>
+  </div>
 </header>
+
+<div class="page-notice" id="pageNotice" hidden></div>
+
+<section class="saved-library">
+  <div class="saved-library-header">
+    <div>
+      <h2>My Saved Device Configs</h2>
+      <p>Saved configs are private to your account. Live fleet instances remain shared segment-wide.</p>
+    </div>
+  </div>
+  <div class="saved-list" id="savedDevicesList"></div>
+  <div class="saved-empty" id="savedDevicesEmpty" hidden>
+    <p class="empty-title">No saved configs yet</p>
+    <p class="empty-body">Use "Save config" in the device form to build your personal launch library.</p>
+  </div>
+</section>
 
 <main class="fleet" id="fleet">
   <!-- cards injected by app.js -->
 </main>
 
 <div class="empty-state" id="emptyState" hidden>
-  <p class="empty-title">No PLCs on this segment yet</p>
+  <p class="empty-title">No devices on this segment yet</p>
   <p class="empty-body">Add one to start generating protocol-aware ICS traffic for the lab.</p>
-  <button class="btn btn-primary" id="emptyStateBtn">+ New PLC</button>
+  <button class="btn btn-primary" id="emptyStateBtn">+ New Device</button>
 </div>
 
 <!-- New instance panel -->
 <div class="overlay" id="overlay" hidden>
   <form class="panel" id="newInstanceForm" autocomplete="off">
     <div class="panel-header">
-      <h2>Configure PLC</h2>
+      <h2 id="panelTitle">Configure Device</h2>
       <button type="button" class="icon-btn" id="closePanelBtn" aria-label="Close">&times;</button>
     </div>
+
+    <input id="f-save-id" name="save_id" hidden>
 
     <div class="field-row">
       <label for="f-name">Name</label>
       <input id="f-name" name="name" placeholder="PLC-1" required maxlength="40">
     </div>
 
+    <div class="field-row">
+      <label for="f-save-name">Saved config name</label>
+      <input id="f-save-name" name="save_name" placeholder="Week 3 tank setup" maxlength="80">
+      <p class="field-help">Only used when saving to your account. Launching does not require it.</p>
+    </div>
+
     <div class="field-grid">
       <div class="field-row">
-        <label for="f-host">Host</label>
-        <input id="f-host" name="host" placeholder="192.168.1.181" required>
+        <label for="f-host-select">Host</label>
+        <select id="f-host-select" name="host_select"></select>
+        <input id="f-host-custom" name="host_custom" placeholder="192.168.1.181" hidden>
       </div>
       <div class="field-row">
         <label for="f-port">Port</label>
@@ -65,15 +99,15 @@
         <input id="f-unit" name="unit_id" type="number" min="0" max="247" value="1" required>
       </div>
       <div class="field-row">
-        <label class="label-with-status" for="f-plc-type">
-          <span>PLC type</span>
-          <span class="field-status" id="plcTypeAvailability">Available</span>
+        <label class="label-with-status" for="f-device-type">
+          <span>Device type</span>
+          <span class="field-status" id="deviceTypeAvailability">Available</span>
         </label>
-        <select id="f-plc-type" name="plc_type"></select>
+        <select id="f-device-type" name="device_type"></select>
       </div>
     </div>
 
-    <p class="field-help" id="plcTypeDetail">Loading PLC type presets…</p>
+    <p class="field-help" id="deviceTypeDetail">Loading device definitions...</p>
 
     <div class="field-row">
       <label>Protocol backend</label>
@@ -85,7 +119,7 @@
     </div>
 
     <div class="field-row">
-      <label class="checkbox"><input type="checkbox" id="f-override-enabled"> Override preset fingerprint strings</label>
+      <label class="checkbox"><input type="checkbox" id="f-override-enabled"> Override preset identity strings</label>
       <p class="field-help">Enable this to override vendor, model, or product code while keeping the preset protocol/backend.</p>
     </div>
 
@@ -120,7 +154,71 @@
 
     <div class="panel-footer">
       <button type="button" class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button type="button" class="btn btn-ghost" id="saveConfigBtn">Save config</button>
       <button type="submit" class="btn btn-primary">Launch</button>
+    </div>
+  </form>
+</div>
+
+<div class="overlay" id="faultOverlay" hidden>
+  <form class="panel" id="faultForm" autocomplete="off">
+    <div class="panel-header">
+      <h2>Exercise Setup</h2>
+      <button type="button" class="icon-btn" id="closeFaultPanelBtn" aria-label="Close">&times;</button>
+    </div>
+
+    <p class="field-help">
+      Fault state is intentionally kept out of the normal fleet cards. Use this panel to inject or clear faults while students observe device behavior through real protocol traffic.
+    </p>
+
+    <div class="field-row">
+      <label for="fault-instance">Target instance</label>
+      <select id="fault-instance" name="instance_id"></select>
+    </div>
+
+    <div class="field-grid">
+      <div class="field-row">
+        <label for="fault-point">Point</label>
+        <select id="fault-point" name="point_id"></select>
+      </div>
+      <div class="field-row">
+        <label for="fault-mode">Mode</label>
+        <select id="fault-mode" name="mode"></select>
+      </div>
+    </div>
+
+    <div class="advanced-panel" id="faultParamsPanel" hidden>
+      <div class="field-grid">
+        <div class="field-row" id="fault-drift-rate-row" hidden>
+          <label for="fault-drift-rate">Drift rate per second</label>
+          <input id="fault-drift-rate" type="number" step="0.01" value="0.05">
+        </div>
+        <div class="field-row" id="fault-drift-direction-row" hidden>
+          <label for="fault-drift-direction">Drift direction</label>
+          <select id="fault-drift-direction">
+            <option value="1">Positive</option>
+            <option value="-1">Negative</option>
+          </select>
+        </div>
+        <div class="field-row" id="fault-noise-amplitude-row" hidden>
+          <label for="fault-noise-amplitude">Noise amplitude</label>
+          <input id="fault-noise-amplitude" type="number" step="0.01" value="0.25">
+        </div>
+      </div>
+    </div>
+
+    <p class="form-error" id="faultFormError" hidden></p>
+
+    <div class="active-faults-panel">
+      <div class="active-faults-title">Active faults on this instance</div>
+      <div class="active-faults-list" id="faultActiveList"></div>
+      <p class="field-help" id="faultActiveEmpty">No active faults.</p>
+    </div>
+
+    <div class="panel-footer">
+      <button type="button" class="btn btn-ghost" id="clearSelectedFaultBtn">Clear selected point</button>
+      <button type="button" class="btn btn-ghost" id="cancelFaultBtn">Close</button>
+      <button type="submit" class="btn btn-primary">Inject fault</button>
     </div>
   </form>
 </div>
@@ -134,6 +232,7 @@
         <div class="card-meta">
           <div class="card-subtitle"></div>
           <span class="protocol-tag"></span>
+          <span class="class-tag"></span>
           <span class="hmi-tag"></span>
         </div>
       </div>
@@ -157,7 +256,7 @@
     <section class="hmi-panel" hidden>
       <div class="hmi-panel-header">
         <div>
-          <div class="hmi-panel-title">Operator HMI</div>
+      <div class="hmi-panel-title">Operator HMI</div>
           <div class="hmi-panel-subtitle"></div>
         </div>
         <div class="hmi-panel-actions">
@@ -171,48 +270,11 @@
       <p class="hmi-banner"></p>
 
       <div class="hmi-layout">
-        <div class="hmi-gauge-card">
-          <div class="tank-gauge">
-            <div class="tank-gauge-fill"></div>
-          </div>
-          <div class="tank-gauge-caption">Tank level</div>
-          <div class="tank-gauge-value">--.-%</div>
-        </div>
-
-        <div class="hmi-data-stack">
-          <dl class="hmi-readout-grid">
-            <div><dt>Flow</dt><dd class="hmi-flow">--.-</dd></div>
-            <div><dt>Setpoint</dt><dd class="hmi-setpoint">--.-%</dd></div>
-            <div><dt>Pump</dt><dd class="hmi-pump">OFF</dd></div>
-            <div><dt>Valve</dt><dd class="hmi-valve">CLOSED</dd></div>
-            <div><dt>Alarm Word</dt><dd class="hmi-alarm-word">0</dd></div>
-            <div><dt>Uptime</dt><dd class="hmi-uptime">0s</dd></div>
-          </dl>
-
-          <div class="alarm-strip">
-            <div class="alarm-pill alarm-high"><span class="alarm-led"></span><span>High level</span></div>
-            <div class="alarm-pill alarm-low"><span class="alarm-led"></span><span>Low level</span></div>
-          </div>
-        </div>
+        <div class="hmi-primary-zone"></div>
+        <div class="hmi-secondary-zone"></div>
       </div>
 
-      <div class="hmi-controls">
-        <div class="control-group">
-          <span class="control-label">Pump</span>
-          <button class="btn btn-sm btn-start btn-hmi-pump-on">Start</button>
-          <button class="btn btn-sm btn-stop btn-hmi-pump-off">Stop</button>
-        </div>
-        <div class="control-group">
-          <span class="control-label">Valve</span>
-          <button class="btn btn-sm btn-start btn-hmi-valve-open">Open</button>
-          <button class="btn btn-sm btn-stop btn-hmi-valve-close">Close</button>
-        </div>
-        <form class="hmi-setpoint-form">
-          <label>Level setpoint</label>
-          <input class="hmi-setpoint-input" type="number" min="0" max="100" step="0.1" placeholder="50.0">
-          <button class="btn btn-sm btn-primary" type="submit">Apply</button>
-        </form>
-      </div>
+      <div class="hmi-controls"></div>
 
       <div class="hmi-command-status"></div>
       <pre class="hmi-log-console"></pre>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }} - Device Fleet Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-body">
+  <main class="auth-shell">
+    <section class="auth-card">
+      <div class="auth-brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">DEVICE FLEET CONTROL</span>
+      </div>
+      <h1>{{ title }}</h1>
+      <p class="auth-copy">
+        {% if mode == "register" %}
+        Create a local account for your saved device configs. Live fleet instances remain shared on the segment.
+        {% else %}
+        Sign in to manage the shared fleet and your private saved device configs.
+        {% endif %}
+      </p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="auth-messages">
+            {% for category, message in messages %}
+              <p class="auth-message auth-message-{{ category }}">{{ message }}</p>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <form class="auth-form" method="post" action="{{ url_for('register_submit' if mode == 'register' else 'login_submit') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if mode == "login" and request.args.get("next") %}
+        <input type="hidden" name="next" value="{{ request.args.get('next') }}">
+        {% endif %}
+
+        <div class="field-row">
+          <label for="auth-username">Username</label>
+          <input id="auth-username" name="username" value="{{ (form_data or {}).get('username', '') }}" required autocomplete="username">
+        </div>
+
+        <div class="field-row">
+          <label for="auth-password">Password</label>
+          <input id="auth-password" name="password" type="password" required autocomplete="{{ 'new-password' if mode == 'register' else 'current-password' }}">
+        </div>
+
+        {% if mode == "register" %}
+        <div class="field-row">
+          <label for="auth-confirm-password">Confirm password</label>
+          <input id="auth-confirm-password" name="confirm_password" type="password" required autocomplete="new-password">
+        </div>
+        {% endif %}
+
+        <button class="btn btn-primary auth-submit" type="submit">{{ "Create account" if mode == "register" else "Sign in" }}</button>
+      </form>
+
+      <p class="auth-switch">
+        {% if mode == "register" %}
+        Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
+        {% else %}
+        Need an account? <a href="{{ url_for('register') }}">Register</a>
+        {% endif %}
+      </p>
+    </section>
+  </main>
+</body>
+</html>

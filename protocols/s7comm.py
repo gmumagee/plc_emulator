@@ -17,8 +17,6 @@ log = logging.getLogger("plc_emulator")
 S7_DB_PROCESS = 1
 S7_DB_CONTROL = 2
 S7_DB_ENGINEERING = 900
-S7_DB_PROCESS_SIZE = 32
-S7_DB_CONTROL_SIZE = 32
 S7_DB_ENGINEERING_SIZE = 4096
 
 
@@ -39,8 +37,8 @@ def build_engineering_blob(config: EmulatorConfig) -> bytearray:
 @register_protocol("s7comm")
 class S7CommBackend(ProtocolBackend):
     async def serve(self, config: EmulatorConfig, image: ProcessImage) -> None:
-        process_db = bytearray(S7_DB_PROCESS_SIZE)
-        control_db = bytearray(S7_DB_CONTROL_SIZE)
+        process_db = bytearray(image.s7_layout.process_size)
+        control_db = bytearray(image.s7_layout.control_size)
         engineering_db = build_engineering_blob(config)
         image.sync_to_s7(process_db, control_db, engineering_db)
 
