@@ -18,6 +18,16 @@
   const pageNoticeEl = document.getElementById("pageNotice");
   const savedDevicesListEl = document.getElementById("savedDevicesList");
   const savedDevicesEmptyEl = document.getElementById("savedDevicesEmpty");
+  const facilitiesListEl = document.getElementById("facilitiesList");
+  const facilitiesEmptyEl = document.getElementById("facilitiesEmpty");
+  const newFacilityBtn = document.getElementById("newFacilityBtn");
+  const facilityImportBtn = document.getElementById("facilityImportBtn");
+  const facilityImportInput = document.getElementById("facilityImportInput");
+  const workspacePanel = document.getElementById("workspacePanel");
+  const plcsPanel = document.getElementById("plcsPanel");
+  const facilitiesPanel = document.getElementById("facilitiesPanel");
+  const tabButtons = Array.from(document.querySelectorAll("[data-tab-target]"));
+  const tabPanels = Array.from(document.querySelectorAll("[data-tab-panel]"));
   const openFaultLabBtn = document.getElementById("openFaultLabBtn");
 
   const overlay = document.getElementById("overlay");
@@ -43,6 +53,20 @@
   const saveIdInput = document.getElementById("f-save-id");
   const saveNameInput = document.getElementById("f-save-name");
   const saveConfigBtn = document.getElementById("saveConfigBtn");
+  const facilityOverlay = document.getElementById("facilityOverlay");
+  const facilityForm = document.getElementById("facilityForm");
+  const facilityPanelTitleEl = document.getElementById("facilityPanelTitle");
+  const facilityIdInput = document.getElementById("facility-id");
+  const facilityNameInput = document.getElementById("facility-name");
+  const facilityDescriptionInput = document.getElementById("facility-description");
+  const facilityFormError = document.getElementById("facilityFormError");
+  const facilityBuilderEl = document.getElementById("facilityBuilder");
+  const facilityDevicesListEl = document.getElementById("facilityDevicesList");
+  const facilityDevicesEmptyEl = document.getElementById("facilityDevicesEmpty");
+  const facilityDevicePickerEl = document.getElementById("facility-device-picker");
+  const addFacilityDeviceBtn = document.getElementById("addFacilityDeviceBtn");
+  const closeFacilityPanelBtn = document.getElementById("closeFacilityPanelBtn");
+  const cancelFacilityBtn = document.getElementById("cancelFacilityBtn");
   const faultOverlay = document.getElementById("faultOverlay");
   const faultForm = document.getElementById("faultForm");
   const faultInstanceSelect = document.getElementById("fault-instance");
@@ -78,6 +102,11 @@
   let hostAddresses = [];
   let lastList = [];
   let savedDevices = [];
+  let facilities = [];
+  let activeFacility = null;
+  let activeTab = "workspace";
+  const openFacilityPanels = new Set();
+  const facilityDetailCache = new Map();
   let pageNoticeTimer = null;
 
   function protocolLabel(protocol) {
@@ -127,7 +156,12 @@
   }
 
   function escapeHtml(value) {
-    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function sortDeviceTypes(payload) {
@@ -331,6 +365,221 @@
     }
     savedDevices = payload.saved_devices || [];
     renderSavedDevices();
+    if (!facilityOverlay.hidden) {
+      populateFacilityDevicePicker();
+    }
+  }
+
+  function setActiveTab(nextTab, { updateHash = true } = {}) {
+    activeTab = ["workspace", "plcs", "facilities"].includes(nextTab) ? nextTab : "workspace";
+    for (const button of tabButtons) {
+      button.dataset.active = String(button.dataset.tabTarget === activeTab);
+    }
+    for (const panel of tabPanels) {
+      panel.hidden = panel.dataset.tabPanel !== activeTab;
+    }
+    if (updateHash) {
+      const desiredHash = `#${activeTab}`;
+      if (window.location.hash !== desiredHash) {
+        history.replaceState(null, "", desiredHash);
+      }
+    }
+    if (activeTab === "facilities") {
+      renderFacilities();
+    }
+  }
+
+  function initialTabFromHash() {
+    const hash = window.location.hash.replace(/^#/, "").trim().toLowerCase();
+    return ["workspace", "plcs", "facilities"].includes(hash) ? hash : "workspace";
+  }
+
+  async function refreshFacilities() {
+    const { response, payload } = await fetchJson("/api/facilities");
+    if (!response.ok) {
+      throw new Error(payload.error || `Failed to load facilities (${response.status})`);
+    }
+    facilities = payload.facilities || [];
+    renderFacilities();
+  }
+
+  async function fetchFacilityDetail(facilityId) {
+    const { response, payload } = await fetchJson(`/api/facilities/${facilityId}`);
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to load facility.");
+    }
+    facilityDetailCache.set(facilityId, payload.facility);
+    return payload.facility;
+  }
+
+  function facilityInstances(facilityId) {
+    return lastList.filter((inst) => inst.facility_id === facilityId);
+  }
+
+  function renderFacilityMembers(detail, container) {
+    const devices = detail?.devices || [];
+    if (!devices.length) {
+      container.innerHTML = `<div class="saved-empty"><p class="empty-title">No PLCs saved in this Facility yet</p><p class="empty-body">Edit this Facility to add saved PLC configs from your library.</p></div>`;
+      return;
+    }
+    container.innerHTML = devices.map((entry) => `
+      <article class="facility-device">
+        <div class="facility-device-header">
+          <div>
+            <h3 class="facility-device-title">${escapeHtml(entry.saved_device_name)}</h3>
+            <div class="facility-device-meta">
+              ${escapeHtml(entry.config.name || "unnamed")} · ${escapeHtml(entry.config.host || "--")}:${escapeHtml(entry.config.port || "--")} · unit ${escapeHtml(entry.config.unit_id ?? "--")}
+            </div>
+          </div>
+          <span class="saved-item-status" data-state="${entry.device?.implemented ? "ready" : "warn"}">${escapeHtml(entry.device?.protocol || entry.config.protocol || "unknown")}</span>
+        </div>
+        <div class="facility-device-meta">
+          Overrides: name ${escapeHtml(entry.instance_name_override || "inherit")}, host ${escapeHtml(entry.host_override || "inherit")}, port ${escapeHtml(entry.port_override ?? "inherit")}, unit ${escapeHtml(entry.unit_id_override ?? "inherit")}
+        </div>
+      </article>
+    `).join("");
+  }
+
+  function renderFacilities() {
+    facilitiesListEl.innerHTML = "";
+    facilitiesEmptyEl.hidden = facilities.length > 0;
+    for (const facility of facilities) {
+      const liveInstances = facilityInstances(facility.id);
+      const running = liveInstances.filter((inst) => inst.running).length;
+      const expanded = openFacilityPanels.has(facility.id);
+      const detail = facilityDetailCache.get(facility.id);
+      const item = document.createElement("article");
+      item.className = "saved-item";
+      item.innerHTML = `
+        <div class="saved-item-main">
+          <div class="saved-item-title-row">
+            <h3 class="saved-item-title">${escapeHtml(facility.name)}</h3>
+            <span class="saved-item-status" data-state="${running > 0 ? "ready" : "warn"}">${running}/${liveInstances.length} running</span>
+          </div>
+          <div class="saved-item-meta">${escapeHtml(facility.description || "No description")}</div>
+          <div class="saved-item-detail">Private batch launch group built from your PLC library. Live members are tagged in Workspace.</div>
+          <div class="facility-members" data-facility-members="${facility.id}" ${expanded ? "" : "hidden"}>
+            ${expanded && detail ? "" : `<div class="facility-loading">${expanded ? "Loading saved PLCs..." : ""}</div>`}
+          </div>
+        </div>
+        <div class="saved-item-actions">
+          <button class="btn btn-sm btn-ghost" data-action="toggle-facility" data-facility-id="${facility.id}">${expanded ? "Hide PLCs" : "Show PLCs"}</button>
+          <button class="btn btn-sm btn-primary" data-action="launch-facility" data-facility-id="${facility.id}">Launch</button>
+          <button class="btn btn-sm btn-ghost" data-action="stop-facility" data-facility-id="${facility.id}">Stop</button>
+          <button class="btn btn-sm btn-ghost" data-action="edit-facility" data-facility-id="${facility.id}">Edit</button>
+          <button class="btn btn-sm btn-ghost" data-action="export-facility" data-facility-id="${facility.id}">Export</button>
+          <button class="btn btn-sm btn-danger" data-action="delete-facility" data-facility-id="${facility.id}">Delete</button>
+        </div>
+      `;
+      facilitiesListEl.appendChild(item);
+      if (expanded && detail) {
+        renderFacilityMembers(detail, item.querySelector(`[data-facility-members="${facility.id}"]`));
+      }
+    }
+  }
+
+  function resetFacilityOverlay() {
+    activeFacility = null;
+    facilityIdInput.value = "";
+    facilityNameInput.value = "";
+    facilityDescriptionInput.value = "";
+    facilityFormError.hidden = true;
+    facilityFormError.textContent = "";
+    facilityPanelTitleEl.textContent = "Configure Facility";
+    facilityBuilderEl.hidden = true;
+    facilityDevicesListEl.innerHTML = "";
+    facilityDevicesEmptyEl.hidden = false;
+    populateFacilityDevicePicker();
+  }
+
+  function populateFacilityDevicePicker() {
+    facilityDevicePickerEl.innerHTML = "";
+    for (const saved of savedDevices) {
+      const option = document.createElement("option");
+      option.value = String(saved.id);
+      option.textContent = `${saved.name} -> ${saved.config.name || "unnamed"} (${saved.protocol || "unknown"})`;
+      facilityDevicePickerEl.appendChild(option);
+    }
+    addFacilityDeviceBtn.disabled = !facilityIdInput.value || savedDevices.length === 0;
+  }
+
+  function renderFacilityDevices() {
+    const devices = activeFacility?.devices || [];
+    facilityDevicesListEl.innerHTML = "";
+    facilityDevicesEmptyEl.hidden = devices.length > 0;
+    for (const entry of devices) {
+      const liveInstances = lastList.filter(
+        (inst) => inst.facility_id === activeFacility.id && inst.facility_device_id === entry.id
+      );
+      const item = document.createElement("article");
+      item.className = "facility-device";
+      item.innerHTML = `
+        <div class="facility-device-header">
+          <div>
+            <h3 class="facility-device-title">${escapeHtml(entry.saved_device_name)}</h3>
+            <div class="facility-device-meta">
+              ${escapeHtml((entry.device?.display_name || entry.device_type_id || "Unknown device"))}
+              · ${escapeHtml(entry.config.name || "unnamed")} on ${escapeHtml(entry.config.host || "--")}:${escapeHtml(entry.config.port || "--")}
+              · ${liveInstances.length} live instance(s)
+            </div>
+          </div>
+          <span class="saved-item-status" data-state="${entry.device?.implemented ? "ready" : "warn"}">${escapeHtml(entry.device?.protocol || entry.config.protocol || "unknown")}</span>
+        </div>
+        <div class="facility-device-grid">
+          <div class="field-row">
+            <label>Instance name override</label>
+            <input data-field="instance_name_override" value="${escapeHtml(entry.instance_name_override || "")}" placeholder="Optional">
+          </div>
+          <div class="field-row">
+            <label>Host override</label>
+            <input data-field="host_override" value="${escapeHtml(entry.host_override || "")}" placeholder="${escapeHtml(entry.snapshot?.config?.host || "")}">
+          </div>
+          <div class="field-row">
+            <label>Port override</label>
+            <input data-field="port_override" type="number" min="1" max="65535" value="${entry.port_override ?? ""}" placeholder="${escapeHtml(entry.snapshot?.config?.port || "")}">
+          </div>
+          <div class="field-row">
+            <label>Unit ID override</label>
+            <input data-field="unit_id_override" type="number" min="0" max="247" value="${entry.unit_id_override ?? ""}" placeholder="${escapeHtml(entry.snapshot?.config?.unit_id || "")}">
+          </div>
+        </div>
+        <div class="facility-device-actions">
+          <button type="button" class="btn btn-sm btn-ghost" data-action="save-facility-device" data-facility-device-id="${entry.id}">Save overrides</button>
+          <button type="button" class="btn btn-sm btn-danger" data-action="remove-facility-device" data-facility-device-id="${entry.id}">Remove</button>
+        </div>
+      `;
+      item.dataset.facilityDeviceId = String(entry.id);
+      facilityDevicesListEl.appendChild(item);
+    }
+  }
+
+  async function openFacilityOverlay(facilityId = null) {
+    resetFacilityOverlay();
+    facilityOverlay.hidden = false;
+    if (!facilityId) {
+      populateFacilityDevicePicker();
+      return;
+    }
+    try {
+      const detail = await fetchFacilityDetail(facilityId);
+      activeFacility = detail;
+      facilityIdInput.value = String(detail.id);
+      facilityNameInput.value = detail.name || "";
+      facilityDescriptionInput.value = detail.description || "";
+      facilityPanelTitleEl.textContent = `Edit Facility: ${detail.name}`;
+      facilityBuilderEl.hidden = false;
+      populateFacilityDevicePicker();
+      renderFacilityDevices();
+    } catch (err) {
+      closeFacilityOverlay();
+      showPageNotice(err.message, "error");
+    }
+  }
+
+  function closeFacilityOverlay() {
+    facilityOverlay.hidden = true;
+    facilityFormError.hidden = true;
+    facilityFormError.textContent = "";
   }
 
   function currentFaultInstance() {
@@ -1009,6 +1258,9 @@
     card.querySelector(".card-name").textContent = inst.name;
     card.querySelector(".card-subtitle").textContent = `${inst.vendor} / ${inst.model}`;
     card.querySelector(".protocol-tag").textContent = protocolLabel(inst.protocol);
+    const facilityTag = card.querySelector(".facility-tag");
+    facilityTag.hidden = !inst.facility_name;
+    facilityTag.textContent = inst.facility_name ? `FACILITY: ${inst.facility_name}` : "";
     card.querySelector(".status-label").textContent = inst.running ? "RUNNING" : "STOPPED";
     card.querySelector(".readout-address").textContent = `${inst.host}:${inst.port}`;
     card.querySelector(".readout-unit").textContent = inst.unit_id;
@@ -1089,13 +1341,16 @@
     );
     const nextIds = new Set();
 
-    for (const inst of sortedList) {
+    for (const [index, inst] of sortedList.entries()) {
       let card = existingCards.get(inst.id);
       if (!card) {
         card = createCardElement();
       }
       updateCard(inst, card);
-      fleetEl.appendChild(card);
+      const currentAtIndex = fleetEl.children[index] || null;
+      if (currentAtIndex !== card) {
+        fleetEl.insertBefore(card, currentAtIndex);
+      }
       nextIds.add(inst.id);
     }
 
@@ -1103,6 +1358,12 @@
       if (!nextIds.has(id)) {
         card.remove();
       }
+    }
+    if (activeTab === "facilities") {
+      renderFacilities();
+    }
+    if (!facilityOverlay.hidden && activeFacility) {
+      renderFacilityDevices();
     }
   }
 
@@ -1197,6 +1458,7 @@
       if (json.warning) {
         showPageNotice(json.warning, "warn");
       }
+      setActiveTab("workspace");
       refresh();
     } catch (err) {
       formError.textContent = `Network error: ${err.message}`;
@@ -1206,6 +1468,44 @@
 
   saveConfigBtn.addEventListener("click", () => {
     saveCurrentConfig();
+  });
+
+  facilityForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    facilityFormError.hidden = true;
+    facilityFormError.textContent = "";
+    const body = {
+      name: facilityNameInput.value.trim(),
+      description: facilityDescriptionInput.value.trim(),
+    };
+    const facilityId = facilityIdInput.value.trim();
+    const url = facilityId ? `/api/facilities/${facilityId}` : "/api/facilities";
+    const method = facilityId ? "PUT" : "POST";
+    const { response, payload } = await fetchJson(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      facilityFormError.textContent = payload.error || "Failed to save Facility.";
+      facilityFormError.hidden = false;
+      return;
+    }
+    await refreshFacilities();
+    if (facilityId) {
+      activeFacility = await fetchFacilityDetail(parseInt(facilityId, 10));
+      facilityBuilderEl.hidden = false;
+      renderFacilityDevices();
+      showPageNotice(`Updated Facility "${payload.facility.name}".`, "success");
+      return;
+    }
+    facilityIdInput.value = String(payload.facility.id);
+    facilityPanelTitleEl.textContent = `Edit Facility: ${payload.facility.name}`;
+    facilityBuilderEl.hidden = false;
+    activeFacility = await fetchFacilityDetail(payload.facility.id);
+    renderFacilityDevices();
+    populateFacilityDevicePicker();
+    showPageNotice(`Created Facility "${payload.facility.name}". Add saved PLCs below.`, "success");
   });
 
   faultForm.addEventListener("submit", async (event) => {
@@ -1294,6 +1594,7 @@
       } else {
         showPageNotice(`Launched "${savedDevice.name}".`, "success");
       }
+      setActiveTab("workspace");
       await refresh();
       return;
     }
@@ -1312,6 +1613,83 @@
       }
       await refreshSavedDevices();
       showPageNotice(`Deleted saved config "${savedDevice.name}".`, "success");
+    }
+  });
+
+  facilitiesListEl.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const facilityId = parseInt(button.dataset.facilityId || "", 10);
+    const facility = facilities.find((entry) => entry.id === facilityId);
+    if (!facility) return;
+
+    if (button.dataset.action === "toggle-facility") {
+      if (openFacilityPanels.has(facilityId)) {
+        openFacilityPanels.delete(facilityId);
+        renderFacilities();
+        return;
+      }
+      openFacilityPanels.add(facilityId);
+      renderFacilities();
+      try {
+        await fetchFacilityDetail(facilityId);
+        renderFacilities();
+      } catch (err) {
+        showPageNotice(err.message, "error");
+      }
+      return;
+    }
+
+    if (button.dataset.action === "launch-facility") {
+      const { response, payload } = await fetchJson(`/api/facilities/${facilityId}/launch`, { method: "POST" });
+      if (!response.ok) {
+        const message = payload.conflicts?.map((conflict) => `${conflict.name}: ${conflict.error}`).join(" | ");
+        showPageNotice(message || payload.error || "Failed to launch Facility.", "error");
+        return;
+      }
+      if (payload.warnings?.length) {
+        showPageNotice(payload.warnings.map((item) => `${item.name}: ${item.warning}`).join(" | "), "warn");
+      } else {
+        showPageNotice(`Launched Facility "${facility.name}".`, "success");
+      }
+      setActiveTab("workspace");
+      await refresh();
+      return;
+    }
+
+    if (button.dataset.action === "stop-facility") {
+      const { response, payload } = await fetchJson(`/api/facilities/${facilityId}/stop`, { method: "POST" });
+      if (!response.ok) {
+        showPageNotice(payload.error || "Failed to stop Facility.", "error");
+        return;
+      }
+      showPageNotice(`Stopped Facility "${facility.name}".`, "success");
+      await refresh();
+      return;
+    }
+
+    if (button.dataset.action === "edit-facility") {
+      await openFacilityOverlay(facilityId);
+      return;
+    }
+
+    if (button.dataset.action === "export-facility") {
+      window.location.href = `/api/facilities/${facilityId}/export`;
+      return;
+    }
+
+    if (button.dataset.action === "delete-facility") {
+      if (!confirm(`Delete Facility "${facility.name}"? Any currently running members launched from it will be removed.`)) return;
+      const { response, payload } = await fetchJson(`/api/facilities/${facilityId}`, { method: "DELETE" });
+      if (!response.ok) {
+        showPageNotice(payload.error || "Failed to delete Facility.", "error");
+        return;
+      }
+      facilityDetailCache.delete(facilityId);
+      openFacilityPanels.delete(facilityId);
+      await refreshFacilities();
+      await refresh();
+      showPageNotice(`Deleted Facility "${facility.name}".`, "success");
     }
   });
 
@@ -1426,6 +1804,84 @@
     });
   });
 
+  facilityDevicesListEl.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button || !activeFacility) return;
+    const facilityDeviceId = parseInt(button.dataset.facilityDeviceId || "", 10);
+    if (!facilityDeviceId) return;
+    const row = facilityDevicesListEl.querySelector(`.facility-device[data-facility-device-id="${facilityDeviceId}"]`);
+    if (!row) return;
+
+    if (button.dataset.action === "save-facility-device") {
+      const payload = {};
+      for (const field of ["instance_name_override", "host_override", "port_override", "unit_id_override"]) {
+        const input = row.querySelector(`[data-field="${field}"]`);
+        payload[field] = input ? input.value : "";
+      }
+      const { response, payload: json } = await fetchJson(
+        `/api/facilities/${activeFacility.id}/devices/${facilityDeviceId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!response.ok) {
+        facilityFormError.textContent = json.error || "Failed to save overrides.";
+        facilityFormError.hidden = false;
+        return;
+      }
+      activeFacility = await fetchFacilityDetail(activeFacility.id);
+      renderFacilityDevices();
+      showPageNotice("Updated Facility member overrides.", "success");
+      return;
+    }
+
+    if (button.dataset.action === "remove-facility-device") {
+      const { response, payload } = await fetchJson(
+        `/api/facilities/${activeFacility.id}/devices/${facilityDeviceId}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        facilityFormError.textContent = payload.error || "Failed to remove PLC from Facility.";
+        facilityFormError.hidden = false;
+        return;
+      }
+      activeFacility = await fetchFacilityDetail(activeFacility.id);
+      renderFacilityDevices();
+      await refreshFacilities();
+      showPageNotice("Removed PLC from Facility.", "success");
+    }
+  });
+
+  addFacilityDeviceBtn.addEventListener("click", async () => {
+    if (!facilityIdInput.value) {
+      facilityFormError.textContent = "Save the Facility before adding PLCs.";
+      facilityFormError.hidden = false;
+      return;
+    }
+    const savedDeviceId = parseInt(facilityDevicePickerEl.value || "", 10);
+    if (!savedDeviceId) {
+      facilityFormError.textContent = "Select a saved PLC to add.";
+      facilityFormError.hidden = false;
+      return;
+    }
+    const { response, payload } = await fetchJson(`/api/facilities/${facilityIdInput.value}/devices`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ saved_device_id: savedDeviceId }),
+    });
+    if (!response.ok) {
+      facilityFormError.textContent = payload.error || "Failed to add PLC to Facility.";
+      facilityFormError.hidden = false;
+      return;
+    }
+    activeFacility = await fetchFacilityDetail(parseInt(facilityIdInput.value, 10));
+    renderFacilityDevices();
+    await refreshFacilities();
+    showPageNotice("Added saved PLC to Facility snapshot.", "success");
+  });
+
   if (openFaultLabBtn) {
     openFaultLabBtn.addEventListener("click", () => {
       openFaultOverlay();
@@ -1434,15 +1890,56 @@
   openButtons.forEach((button) => button.addEventListener("click", () => openOverlay()));
   closeButtons.forEach((button) => button.addEventListener("click", closeOverlay));
   closeFaultButtons.forEach((button) => button.addEventListener("click", closeFaultOverlay));
+  if (newFacilityBtn) {
+    newFacilityBtn.addEventListener("click", () => openFacilityOverlay());
+  }
+  if (facilityImportBtn) {
+    facilityImportBtn.addEventListener("click", () => facilityImportInput.click());
+  }
+  if (facilityImportInput) {
+    facilityImportInput.addEventListener("change", async () => {
+      const file = facilityImportInput.files?.[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      const { response, payload } = await fetchJson("/api/facilities/import", {
+        method: "POST",
+        body: formData,
+      });
+      facilityImportInput.value = "";
+      if (!response.ok) {
+        showPageNotice(payload.error || "Failed to import Facility.", "error");
+        return;
+      }
+      await refreshSavedDevices();
+      await refreshFacilities();
+      facilityDetailCache.delete(payload.facility.id);
+      showPageNotice(`Imported Facility "${payload.facility.name}".`, "success");
+    });
+  }
+  if (closeFacilityPanelBtn) {
+    closeFacilityPanelBtn.addEventListener("click", closeFacilityOverlay);
+  }
+  if (cancelFacilityBtn) {
+    cancelFacilityBtn.addEventListener("click", closeFacilityOverlay);
+  }
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) closeOverlay();
   });
   faultOverlay.addEventListener("click", (event) => {
     if (event.target === faultOverlay) closeFaultOverlay();
   });
+  facilityOverlay.addEventListener("click", (event) => {
+    if (event.target === facilityOverlay) closeFacilityOverlay();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !overlay.hidden) closeOverlay();
     if (event.key === "Escape" && !faultOverlay.hidden) closeFaultOverlay();
+    if (event.key === "Escape" && !facilityOverlay.hidden) closeFacilityOverlay();
+  });
+  window.addEventListener("hashchange", () => setActiveTab(initialTabFromHash(), { updateHash: false }));
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => setActiveTab(button.dataset.tabTarget));
   });
   deviceTypeSelect.addEventListener("change", () => syncSelectedDeviceType());
   hostSelect.addEventListener("change", () => syncHostInputVisibility());
@@ -1469,7 +1966,8 @@
   }, STATUS_POLL_MS);
 
   syncAdvancedVisibility();
-  Promise.all([loadDeviceTypes(), loadHostAddresses(), refreshSavedDevices()])
+  setActiveTab(initialTabFromHash(), { updateHash: false });
+  Promise.all([loadDeviceTypes(), loadHostAddresses(), refreshSavedDevices(), refreshFacilities()])
     .then(() => {
       if (deviceErrors.length > 0) {
         showPageNotice(`Loaded device definitions with ${deviceErrors.length} validation warning(s).`, "warn");

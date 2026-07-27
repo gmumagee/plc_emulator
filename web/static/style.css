@@ -298,6 +298,35 @@ button, input, select {
     background: rgba(240, 89, 107, 0.1);
 }
 
+.tab-bar {
+    max-width: 1400px;
+    margin: 20px auto 0;
+    padding: 0 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.tab-btn {
+    border: 1px solid var(--hairline);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.tab-btn[data-active="true"] {
+    color: var(--live);
+    border-color: rgba(79, 216, 255, 0.32);
+    background: rgba(79, 216, 255, 0.08);
+}
+
 .saved-library {
     max-width: 1400px;
     margin: 24px auto 0;
@@ -393,6 +422,86 @@ button, input, select {
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.facility-members {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.facility-loading {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.facility-builder {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.facility-picker {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: rgba(10, 14, 19, 0.55);
+}
+
+.facility-picker .field-row {
+    flex: 1;
+    min-width: 0;
+}
+
+.facility-devices {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.facility-device {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.facility-device-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.facility-device-title {
+    margin: 0;
+    font-size: 14px;
+}
+
+.facility-device-meta {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.facility-device-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.facility-device-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
 }
 
 .active-faults-panel {
@@ -523,6 +632,21 @@ button, input, select {
     color: #cdbb83;
     border-color: rgba(205, 187, 131, 0.28);
     background: rgba(205, 187, 131, 0.1);
+}
+
+.facility-tag {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffbf69;
+    border: 1px solid rgba(255, 191, 105, 0.3);
+    background: rgba(255, 191, 105, 0.08);
+    border-radius: 999px;
+    padding: 3px 8px;
+    white-space: nowrap;
 }
 
 .hmi-tag {
@@ -1068,6 +1192,10 @@ button, input, select {
     gap: 14px;
 }
 
+.panel-wide {
+    max-width: 820px;
+}
+
 .panel-header {
     display: flex;
     align-items: center;
@@ -1349,6 +1477,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 560px) {
+    .tab-bar {
+        padding: 0 16px;
+    }
+
     .topbar {
         flex-direction: column;
         align-items: flex-start;

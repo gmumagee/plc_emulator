@@ -80,6 +80,43 @@ cookies are not sent in cleartext. A reverse proxy with a certificate, even a
 self-signed lab certificate, is the minimum sane deployment once credentials
 exist.
 
+## Facilities
+
+Saved PLC configs are still the per-user building blocks. A Facility adds a
+second private library on top: a named multi-device batch made from those saved
+configs, with optional per-member overrides for instance name, host, port, and
+unit ID.
+
+How it behaves:
+
+- Facilities are private to the logged-in user, just like saved PLC configs
+- launching a Facility creates normal live fleet instances that remain shared and visible to all authenticated users
+- HMIs are not auto-launched during Facility launch; they remain a manual per-instance action
+- Facility membership is **snapshotted by value** when a saved config is added, so later edits to the saved-config library do not silently rewrite old Facilities
+
+Data lives in SQLite alongside the existing auth and saved-config tables:
+
+- `facilities`: Facility metadata
+- `facility_devices`: per-Facility members, overrides, and the snapshotted launch config used for export/import
+
+Workflow in the UI:
+
+1. Save one or more device configs in **My Saved Device Configs**.
+2. Create a Facility in the **Facilities** tab.
+3. Add saved PLCs into that Facility and set any host/port/unit/name overrides needed to avoid collisions.
+4. Use **Launch** to start the whole batch, or **Stop** to tear down the batch by Facility tag.
+
+Facility launch is all-or-nothing. The server validates every member up front for:
+
+- collisions inside the Facility itself
+- collisions against already-running fleet instances
+- the same per-instance normalization and launch checks used by the single-device launcher
+
+Facility exports are self-contained JSON files. Importing one creates a new
+private Facility under the importing user and fresh saved-device rows for that
+user; the app does not try to deduplicate against the importer’s existing saved
+library.
+
 ## Bulk-Provisioning authbind
 
 To provision every privileged port referenced by the current device library in one pass, run:

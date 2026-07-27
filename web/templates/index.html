@@ -30,35 +30,68 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-ghost" type="submit">Log out</button>
     </form>
-    <button class="btn btn-primary" id="newInstanceBtn">+ New Device</button>
   </div>
 </header>
 
 <div class="page-notice" id="pageNotice" hidden></div>
 
-<section class="saved-library">
-  <div class="saved-library-header">
-    <div>
-      <h2>My Saved Device Configs</h2>
-      <p>Saved configs are private to your account. Live fleet instances remain shared segment-wide.</p>
-    </div>
-  </div>
-  <div class="saved-list" id="savedDevicesList"></div>
-  <div class="saved-empty" id="savedDevicesEmpty" hidden>
-    <p class="empty-title">No saved configs yet</p>
-    <p class="empty-body">Use "Save config" in the device form to build your personal launch library.</p>
+<nav class="tab-bar" aria-label="Primary">
+  <button class="tab-btn" id="tabWorkspaceBtn" data-tab-target="workspace" type="button">Workspace</button>
+  <button class="tab-btn" id="tabPlcsBtn" data-tab-target="plcs" type="button">PLCs</button>
+  <button class="tab-btn" id="tabFacilitiesBtn" data-tab-target="facilities" type="button">Facilities</button>
+</nav>
+
+<section class="tab-panel" id="workspacePanel" data-tab-panel="workspace">
+  <main class="fleet" id="fleet">
+    <!-- cards injected by app.js -->
+  </main>
+
+  <div class="empty-state" id="emptyState" hidden>
+    <p class="empty-title">No devices in the workspace yet</p>
+    <p class="empty-body">Create a saved PLC config, launch one, or launch a Facility batch to start generating protocol-aware ICS traffic for the lab.</p>
+    <button class="btn btn-primary" id="emptyStateBtn">+ New PLC</button>
   </div>
 </section>
 
-<main class="fleet" id="fleet">
-  <!-- cards injected by app.js -->
-</main>
+<section class="tab-panel" id="plcsPanel" data-tab-panel="plcs" hidden>
+  <section class="saved-library">
+    <div class="saved-library-header">
+      <div>
+        <h2>My PLCs</h2>
+        <p>Saved PLC configs are private to your account. Launching one creates a live shared workspace instance.</p>
+      </div>
+      <div class="saved-item-actions">
+        <button class="btn btn-primary" id="newInstanceBtn" type="button">+ New PLC</button>
+      </div>
+    </div>
+    <div class="saved-list" id="savedDevicesList"></div>
+    <div class="saved-empty" id="savedDevicesEmpty" hidden>
+      <p class="empty-title">No saved PLC configs yet</p>
+      <p class="empty-body">Use "Save config" in the PLC form to build your personal library.</p>
+    </div>
+  </section>
+</section>
 
-<div class="empty-state" id="emptyState" hidden>
-  <p class="empty-title">No devices on this segment yet</p>
-  <p class="empty-body">Add one to start generating protocol-aware ICS traffic for the lab.</p>
-  <button class="btn btn-primary" id="emptyStateBtn">+ New Device</button>
-</div>
+<section class="tab-panel" id="facilitiesPanel" data-tab-panel="facilities" hidden>
+  <section class="saved-library">
+    <div class="saved-library-header">
+      <div>
+        <h2>My Facilities</h2>
+        <p>Facilities are private multi-PLC groups built from your saved PLC library. Live members still appear in the shared Workspace.</p>
+      </div>
+      <div class="saved-item-actions">
+        <input id="facilityImportInput" type="file" accept="application/json,.json" hidden>
+        <button class="btn btn-ghost" id="facilityImportBtn" type="button">Import</button>
+        <button class="btn btn-primary" id="newFacilityBtn" type="button">+ New Facility</button>
+      </div>
+    </div>
+    <div class="saved-list" id="facilitiesList"></div>
+    <div class="saved-empty" id="facilitiesEmpty" hidden>
+      <p class="empty-title">No facilities yet</p>
+      <p class="empty-body">Build a private multi-PLC launch group from your saved PLC configs, then export or share it as JSON.</p>
+    </div>
+  </section>
+</section>
 
 <!-- New instance panel -->
 <div class="overlay" id="overlay" hidden>
@@ -233,6 +266,7 @@
           <div class="card-subtitle"></div>
           <span class="protocol-tag"></span>
           <span class="class-tag"></span>
+          <span class="facility-tag" hidden></span>
           <span class="hmi-tag"></span>
         </div>
       </div>
@@ -283,6 +317,51 @@
     <pre class="log-console plc-log-console" hidden></pre>
   </article>
 </template>
+
+<div class="overlay" id="facilityOverlay" hidden>
+  <form class="panel panel-wide" id="facilityForm" autocomplete="off">
+    <div class="panel-header">
+      <h2 id="facilityPanelTitle">Configure Facility</h2>
+      <button type="button" class="icon-btn" id="closeFacilityPanelBtn" aria-label="Close">&times;</button>
+    </div>
+
+    <input id="facility-id" hidden>
+
+    <div class="field-row">
+      <label for="facility-name">Facility name</label>
+      <input id="facility-name" maxlength="80" placeholder="Line 3 Lab">
+    </div>
+
+    <div class="field-row">
+      <label for="facility-description">Description</label>
+      <input id="facility-description" maxlength="240" placeholder="Three-node batch with mixed protocols">
+      <p class="field-help">Facilities snapshot saved PLC configs when added, so later edits to your library do not silently change old Facilities.</p>
+    </div>
+
+    <div class="form-error" id="facilityFormError" hidden></div>
+
+    <div class="facility-builder" id="facilityBuilder" hidden>
+      <div class="facility-picker">
+        <div class="field-row">
+          <label for="facility-device-picker">Add saved PLC</label>
+          <select id="facility-device-picker"></select>
+        </div>
+        <button type="button" class="btn btn-secondary" id="addFacilityDeviceBtn">Add to Facility</button>
+      </div>
+
+      <div class="facility-devices" id="facilityDevicesList"></div>
+      <div class="saved-empty" id="facilityDevicesEmpty">
+        <p class="empty-title">No PLCs in this Facility yet</p>
+        <p class="empty-body">Save a PLC config first, then add it here with optional host, port, unit-id, or instance-name overrides.</p>
+      </div>
+    </div>
+
+    <div class="panel-actions">
+      <button type="button" class="btn btn-ghost" id="cancelFacilityBtn">Close</button>
+      <button type="submit" class="btn btn-primary">Save Facility</button>
+    </div>
+  </form>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

@@ -107,6 +107,15 @@ def init_db() -> None:
     with sqlite3.connect(DATABASE_FILE, timeout=30) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        if "environments" in tables and "facilities" not in tables:
+            conn.execute("ALTER TABLE environments RENAME TO facilities")
+            tables.discard("environments")
+            tables.add("facilities")
+        if "environment_devices" in tables and "facility_devices" not in tables:
+            conn.execute("ALTER TABLE environment_devices RENAME TO facility_devices")
+            tables.discard("environment_devices")
+            tables.add("facility_devices")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -131,6 +140,48 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS facilities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS facility_devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                facility_id INTEGER NOT NULL,
+                saved_device_id INTEGER,
+                instance_name_override TEXT,
+                host_override TEXT,
+                port_override INTEGER,
+                unit_id_override INTEGER,
+                device_snapshot TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (facility_id) REFERENCES facilities(id) ON DELETE CASCADE,
+                FOREIGN KEY (saved_device_id) REFERENCES saved_devices(id) ON DELETE SET NULL
+            )
+            """
+        )
+        facility_device_columns = {row[1] for row in conn.execute("PRAGMA table_info(facility_devices)").fetchall()}
+        if "environment_id" in facility_device_columns and "facility_id" not in facility_device_columns:
+            conn.execute("ALTER TABLE facility_devices RENAME COLUMN environment_id TO facility_id")
+            facility_device_columns.discard("environment_id")
+            facility_device_columns.add("facility_id")
+        if "device_snapshot" not in facility_device_columns:
+            conn.execute("ALTER TABLE facility_devices ADD COLUMN device_snapshot TEXT NOT NULL DEFAULT '{}'")
+        if "created_at" not in facility_device_columns:
+            conn.execute("ALTER TABLE facility_devices ADD COLUMN created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP")
+        if "updated_at" not in facility_device_columns:
+            conn.execute("ALTER TABLE facility_devices ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP")
         conn.commit()
 
 
@@ -318,12 +369,19 @@ def normalize_instance_config(body: dict) -> dict[str, Any]:
     }
 
 
-def instance_conflicts(name: str, host: str, port: int) -> str | None:
+def instance_conflicts(
+    name: str, host: str, port: int, extra_configs: list[dict[str, Any]] | None = None
+) -> str | None:
     for cfg in instances.values():
         if cfg["host"] == host and cfg["port"] == port:
             return f"{host}:{port} is already used by '{cfg['name']}'"
         if cfg["name"] == name:
             return f"an instance named '{name}' already exists"
+    for cfg in extra_configs or []:
+        if cfg["host"] == host and int(cfg["port"]) == port:
+            return f"{host}:{port} is already used by '{cfg['name']}' in this facility"
+        if cfg["name"] == name:
+            return f"an instance named '{name}' already exists in this facility"
     return None
 
 
@@ -350,6 +408,9 @@ def create_instance_from_config(config: dict[str, Any]) -> tuple[dict, str | Non
         "log_file": str(LOG_DIR / f"{iid}.log"),
         "fault_command_file": str(FAULT_COMMAND_DIR / f"{iid}.jsonl"),
         "fault_status_file": str(FAULT_STATUS_DIR / f"{iid}.json"),
+        "facility_id": config.get("facility_id"),
+        "facility_name": config.get("facility_name"),
+        "facility_device_id": config.get("facility_device_id"),
         "created_at": time.time(),
     }
     save_registry()
@@ -392,6 +453,12 @@ def load_plc_registry() -> None:
         cfg["override_identity"] = bool(cfg.get("override_identity", False))
         cfg.setdefault("fault_command_file", str(FAULT_COMMAND_DIR / f"{iid}.jsonl"))
         cfg.setdefault("fault_status_file", str(FAULT_STATUS_DIR / f"{iid}.json"))
+        cfg.setdefault("facility_id", cfg.get("environment_id"))
+        cfg.setdefault("facility_name", cfg.get("environment_name"))
+        cfg.setdefault("facility_device_id", cfg.get("environment_device_id"))
+        cfg.pop("environment_id", None)
+        cfg.pop("environment_name", None)
+        cfg.pop("environment_device_id", None)
         if cfg.get("pid") and not _pid_alive(cfg["pid"]):
             cfg["pid"] = None
         instances[iid] = cfg
@@ -643,6 +710,23 @@ def stop_hmi(hmi_id: str) -> tuple[bool, str]:
     return _stop_managed_process(hmis, hmi_id)
 
 
+def delete_instance(iid: str) -> None:
+    if iid not in instances:
+        return
+    for hmi_id in list(get_hmi_ids_for_device(iid)):
+        delete_hmi(hmi_id)
+    stop_instance(iid)
+    log_path = LOG_DIR / f"{iid}.log"
+    if log_path.exists():
+        log_path.unlink()
+    for key in ("fault_command_file", "fault_status_file"):
+        path = Path(instances[iid].get(key, ""))
+        if path.exists():
+            path.unlink()
+    del instances[iid]
+    save_registry()
+
+
 def read_hmi_status(hmi_id: str) -> dict:
     cfg = hmis[hmi_id]
     status = {
@@ -733,6 +817,9 @@ def public_view(iid: str) -> dict:
         "product_code": cfg["product_code"],
         "verbose": cfg.get("verbose", False),
         "override_identity": cfg.get("override_identity", False),
+        "facility_id": cfg.get("facility_id"),
+        "facility_name": cfg.get("facility_name"),
+        "facility_device_id": cfg.get("facility_device_id"),
         "running": running,
         "pid": cfg.get("pid") if running else None,
         "privileged_port": cfg["port"] < PRIVILEGED_PORT_CUTOFF,
@@ -880,11 +967,28 @@ def current_user_id() -> int:
     return int(str(current_user.get_id()))
 
 
-def saved_device_row_to_payload(row: sqlite3.Row, device_types: dict[str, DeviceDefinition]) -> dict[str, Any]:
+def parse_json_object(blob: str | None) -> dict[str, Any]:
+    if not blob:
+        return {}
     try:
-        config = json.loads(str(row["config"]))
+        payload = json.loads(blob)
     except json.JSONDecodeError:
-        config = {}
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def facility_row_to_payload(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "name": str(row["name"]),
+        "description": str(row["description"] or ""),
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+    }
+
+
+def saved_device_row_to_payload(row: sqlite3.Row, device_types: dict[str, DeviceDefinition]) -> dict[str, Any]:
+    config = parse_json_object(str(row["config"]))
     device_type_id = str(row["device_type_id"])
     device = device_types.get(device_type_id)
     protocol = config.get("protocol") or (device.protocol if device else None)
@@ -933,6 +1037,443 @@ def fetch_saved_device_row_for_user(user_id: int, saved_device_id: int) -> sqlit
         """,
         (saved_device_id, user_id),
     ).fetchone()
+
+
+def normalize_facility_payload(body: dict[str, Any]) -> tuple[str, str]:
+    name = str(body.get("name") or "").strip()
+    description = str(body.get("description") or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    if len(name) > 80:
+        raise ValueError("name must be 80 characters or fewer")
+    if len(description) > 240:
+        raise ValueError("description must be 240 characters or fewer")
+    return name, description
+
+
+def fetch_facilities_for_user(user_id: int) -> list[dict[str, Any]]:
+    rows = get_db().execute(
+        """
+        SELECT id, name, description, created_at, updated_at
+        FROM facilities
+        WHERE user_id = ?
+        ORDER BY updated_at DESC, id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    return [facility_row_to_payload(row) for row in rows]
+
+
+def fetch_facility_row_for_user(user_id: int, facility_id: int) -> sqlite3.Row | None:
+    return get_db().execute(
+        """
+        SELECT id, user_id, name, description, created_at, updated_at
+        FROM facilities
+        WHERE id = ? AND user_id = ?
+        """,
+        (facility_id, user_id),
+    ).fetchone()
+
+
+def create_facility(user_id: int, body: dict[str, Any]) -> dict[str, Any]:
+    name, description = normalize_facility_payload(body)
+    db = get_db()
+    cursor = db.execute(
+        """
+        INSERT INTO facilities (user_id, name, description)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, name, description),
+    )
+    db.commit()
+    row = fetch_facility_row_for_user(user_id, int(cursor.lastrowid))
+    if row is None:
+        raise LookupError("failed to reload facility")
+    return facility_row_to_payload(row)
+
+
+def update_facility(user_id: int, facility_id: int, body: dict[str, Any]) -> dict[str, Any]:
+    row = fetch_facility_row_for_user(user_id, facility_id)
+    if row is None:
+        raise LookupError("no such facility")
+    name, description = normalize_facility_payload(body)
+    get_db().execute(
+        """
+        UPDATE facilities
+        SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND user_id = ?
+        """,
+        (name, description, facility_id, user_id),
+    )
+    get_db().commit()
+    refreshed = fetch_facility_row_for_user(user_id, facility_id)
+    if refreshed is None:
+        raise LookupError("no such facility")
+    return facility_row_to_payload(refreshed)
+
+
+def snapshot_saved_device(saved_row: sqlite3.Row, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "saved_device_name": str(saved_row["name"]),
+        "device_type_id": str(saved_row["device_type_id"]),
+        "config": payload["config"],
+    }
+
+
+def normalize_facility_device_overrides(body: dict[str, Any]) -> dict[str, Any]:
+    instance_name_override = str(body.get("instance_name_override") or "").strip() or None
+    host_override = str(body.get("host_override") or "").strip() or None
+    port_override = body.get("port_override", None)
+    unit_id_override = body.get("unit_id_override", None)
+    normalized = {
+        "instance_name_override": instance_name_override,
+        "host_override": host_override,
+        "port_override": None,
+        "unit_id_override": None,
+    }
+    if port_override not in (None, ""):
+        try:
+            normalized["port_override"] = int(port_override)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("port_override must be an integer") from exc
+        if not (1 <= normalized["port_override"] <= 65535):
+            raise ValueError("port_override must be between 1 and 65535")
+    if unit_id_override not in (None, ""):
+        try:
+            normalized["unit_id_override"] = int(unit_id_override)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("unit_id_override must be an integer") from exc
+        if not (0 <= normalized["unit_id_override"] <= 247):
+            raise ValueError("unit_id_override must be between 0 and 247")
+    return normalized
+
+
+def fetch_facility_device_rows(facility_id: int) -> list[sqlite3.Row]:
+    return get_db().execute(
+        """
+        SELECT
+            ed.id,
+            ed.facility_id,
+            ed.saved_device_id,
+            ed.instance_name_override,
+            ed.host_override,
+            ed.port_override,
+            ed.unit_id_override,
+            ed.device_snapshot,
+            ed.created_at,
+            ed.updated_at,
+            sd.name AS current_saved_device_name
+        FROM facility_devices ed
+        LEFT JOIN saved_devices sd ON sd.id = ed.saved_device_id
+        WHERE ed.facility_id = ?
+        ORDER BY ed.created_at ASC, ed.id ASC
+        """,
+        (facility_id,),
+    ).fetchall()
+
+
+def facility_device_row_to_payload(
+    row: sqlite3.Row, device_types: dict[str, DeviceDefinition], facility_name: str | None = None
+) -> dict[str, Any]:
+    snapshot = parse_json_object(str(row["device_snapshot"]))
+    config = snapshot.get("config") if isinstance(snapshot.get("config"), dict) else {}
+    device_type_id = str(snapshot.get("device_type_id") or config.get("device_type") or "")
+    device = device_types.get(device_type_id)
+    effective_config = dict(config)
+    if row["instance_name_override"]:
+        effective_config["name"] = str(row["instance_name_override"])
+    if row["host_override"]:
+        effective_config["host"] = str(row["host_override"])
+    if row["port_override"] is not None:
+        effective_config["port"] = int(row["port_override"])
+    if row["unit_id_override"] is not None:
+        effective_config["unit_id"] = int(row["unit_id_override"])
+    return {
+        "id": int(row["id"]),
+        "facility_id": int(row["facility_id"]),
+        "saved_device_id": int(row["saved_device_id"]) if row["saved_device_id"] is not None else None,
+        "saved_device_name": str(
+            row["current_saved_device_name"] or snapshot.get("saved_device_name") or effective_config.get("name") or "Saved device"
+        ),
+        "instance_name_override": str(row["instance_name_override"] or ""),
+        "host_override": str(row["host_override"] or ""),
+        "port_override": int(row["port_override"]) if row["port_override"] is not None else None,
+        "unit_id_override": int(row["unit_id_override"]) if row["unit_id_override"] is not None else None,
+        "snapshot": snapshot,
+        "config": effective_config,
+        "device_type_id": device_type_id,
+        "device": {
+            "display_name": device.display_name,
+            "device_class": device.device_class,
+            "protocol": device.protocol,
+            "default_port": device.default_port,
+            "implemented": device.protocol in get_protocol_backends(),
+            "hmi_supported": device.protocol in SUPPORTED_HMI_PROTOCOLS,
+        }
+        if device
+        else None,
+        "available": device is not None,
+        "running_instances": [
+            public_view(iid)
+            for iid, cfg in instances.items()
+            if int(cfg.get("facility_id") or 0) == int(row["facility_id"])
+            and cfg.get("facility_device_id") == int(row["id"])
+        ],
+        "facility_name": facility_name,
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+    }
+
+
+def fetch_facility_detail_for_user(user_id: int, facility_id: int) -> dict[str, Any]:
+    row = fetch_facility_row_for_user(user_id, facility_id)
+    if row is None:
+        raise LookupError("no such facility")
+    payload = facility_row_to_payload(row)
+    device_types, _ = get_device_types()
+    payload["devices"] = [
+        facility_device_row_to_payload(device_row, device_types, facility_name=payload["name"])
+        for device_row in fetch_facility_device_rows(facility_id)
+    ]
+    payload["running_instance_ids"] = [
+        iid for iid, cfg in instances.items() if int(cfg.get("facility_id") or 0) == facility_id
+    ]
+    return payload
+
+
+def add_facility_device(user_id: int, facility_id: int, body: dict[str, Any]) -> dict[str, Any]:
+    facility = fetch_facility_row_for_user(user_id, facility_id)
+    if facility is None:
+        raise LookupError("no such facility")
+    saved_device_id = body.get("saved_device_id")
+    try:
+        saved_device_id = int(saved_device_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("saved_device_id is required") from exc
+    saved_row = fetch_saved_device_row_for_user(user_id, saved_device_id)
+    if saved_row is None:
+        raise LookupError("no such saved device")
+    device_types, _ = get_device_types()
+    saved_payload = saved_device_row_to_payload(saved_row, device_types)
+    overrides = normalize_facility_device_overrides(body)
+    snapshot = snapshot_saved_device(saved_row, saved_payload)
+    db = get_db()
+    cursor = db.execute(
+        """
+        INSERT INTO facility_devices (
+            facility_id,
+            saved_device_id,
+            instance_name_override,
+            host_override,
+            port_override,
+            unit_id_override,
+            device_snapshot
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            facility_id,
+            saved_device_id,
+            overrides["instance_name_override"],
+            overrides["host_override"],
+            overrides["port_override"],
+            overrides["unit_id_override"],
+            json.dumps(snapshot),
+        ),
+    )
+    db.execute("UPDATE facilities SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (facility_id,))
+    db.commit()
+    rows = fetch_facility_device_rows(facility_id)
+    added_row = next((row for row in rows if int(row["id"]) == int(cursor.lastrowid)), None)
+    if added_row is None:
+        raise LookupError("failed to reload facility device")
+    return facility_device_row_to_payload(added_row, device_types, facility_name=str(facility["name"]))
+
+
+def update_facility_device(user_id: int, facility_id: int, facility_device_id: int, body: dict[str, Any]) -> dict[str, Any]:
+    facility = fetch_facility_row_for_user(user_id, facility_id)
+    if facility is None:
+        raise LookupError("no such facility")
+    row = next((item for item in fetch_facility_device_rows(facility_id) if int(item["id"]) == facility_device_id), None)
+    if row is None:
+        raise LookupError("no such facility device")
+    overrides = normalize_facility_device_overrides(body)
+    db = get_db()
+    db.execute(
+        """
+        UPDATE facility_devices
+        SET instance_name_override = ?, host_override = ?, port_override = ?, unit_id_override = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND facility_id = ?
+        """,
+        (
+            overrides["instance_name_override"],
+            overrides["host_override"],
+            overrides["port_override"],
+            overrides["unit_id_override"],
+            facility_device_id,
+            facility_id,
+        ),
+    )
+    db.execute("UPDATE facilities SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (facility_id,))
+    db.commit()
+    device_types, _ = get_device_types()
+    refreshed = next((item for item in fetch_facility_device_rows(facility_id) if int(item["id"]) == facility_device_id), None)
+    if refreshed is None:
+        raise LookupError("no such facility device")
+    return facility_device_row_to_payload(refreshed, device_types, facility_name=str(facility["name"]))
+
+
+def delete_facility_device(user_id: int, facility_id: int, facility_device_id: int) -> None:
+    facility = fetch_facility_row_for_user(user_id, facility_id)
+    if facility is None:
+        raise LookupError("no such facility")
+    deleted = get_db().execute(
+        "DELETE FROM facility_devices WHERE id = ? AND facility_id = ?",
+        (facility_device_id, facility_id),
+    )
+    if deleted.rowcount == 0:
+        raise LookupError("no such facility device")
+    get_db().execute("UPDATE facilities SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (facility_id,))
+    get_db().commit()
+
+
+def build_facility_device_config(entry: dict[str, Any], facility: dict[str, Any]) -> dict[str, Any]:
+    config = dict(entry["snapshot"].get("config") or {})
+    if entry.get("instance_name_override"):
+        config["name"] = entry["instance_name_override"]
+    if entry.get("host_override"):
+        config["host"] = entry["host_override"]
+    if entry.get("port_override") is not None:
+        config["port"] = entry["port_override"]
+    if entry.get("unit_id_override") is not None:
+        config["unit_id"] = entry["unit_id_override"]
+    config["autostart"] = True
+    normalized = normalize_instance_config(config)
+    normalized["facility_id"] = facility["id"]
+    normalized["facility_name"] = facility["name"]
+    normalized["facility_device_id"] = entry["id"]
+    return normalized
+
+
+def validate_facility_launch(facility: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    planned: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for entry in facility["devices"]:
+        try:
+            config = build_facility_device_config(entry, facility)
+        except ValueError as exc:
+            errors.append({"facility_device_id": entry["id"], "name": entry["saved_device_name"], "error": str(exc)})
+            continue
+        conflict = instance_conflicts(config["name"], config["host"], int(config["port"]), extra_configs=planned)
+        if conflict:
+            errors.append({"facility_device_id": entry["id"], "name": config["name"], "error": conflict})
+            continue
+        planned.append(config)
+    return planned, errors
+
+
+def export_facility_payload(facility: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "format": "plc_em_facility_v1",
+        "name": facility["name"],
+        "description": facility.get("description") or "",
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "devices": [
+            {
+                "saved_device_name": device["saved_device_name"],
+                "snapshot": device["snapshot"],
+                "instance_name_override": device["instance_name_override"] or "",
+                "host_override": device["host_override"] or "",
+                "port_override": device["port_override"],
+                "unit_id_override": device["unit_id_override"],
+            }
+            for device in facility["devices"]
+        ],
+    }
+
+
+def validate_facility_import_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    if payload.get("format") != "plc_em_facility_v1":
+        raise ValueError("unsupported facility export format")
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("facility name is required")
+    devices = payload.get("devices")
+    if not isinstance(devices, list):
+        raise ValueError("devices must be a list")
+    validated: list[dict[str, Any]] = []
+    for index, raw_device in enumerate(devices, start=1):
+        if not isinstance(raw_device, dict):
+            raise ValueError(f"device entry {index} must be an object")
+        snapshot = raw_device.get("snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError(f"device entry {index} is missing a snapshot")
+        snapshot_config = snapshot.get("config")
+        if not isinstance(snapshot_config, dict):
+            raise ValueError(f"device entry {index} snapshot config is invalid")
+        normalized = normalize_instance_config(snapshot_config)
+        validated.append(
+            {
+                "saved_device_name": str(raw_device.get("saved_device_name") or snapshot.get("saved_device_name") or normalized["name"]).strip()
+                or normalized["name"],
+                "snapshot": {
+                    "saved_device_name": str(raw_device.get("saved_device_name") or snapshot.get("saved_device_name") or normalized["name"]).strip()
+                    or normalized["name"],
+                    "device_type_id": str(snapshot.get("device_type_id") or normalized["device_type"]),
+                    "config": normalized,
+                },
+                "instance_name_override": str(raw_device.get("instance_name_override") or "").strip() or None,
+                "host_override": str(raw_device.get("host_override") or "").strip() or None,
+                "port_override": raw_device.get("port_override"),
+                "unit_id_override": raw_device.get("unit_id_override"),
+            }
+        )
+    return validated
+
+
+def import_facility_for_user(user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    imported_devices = validate_facility_import_payload(payload)
+    facility = create_facility(
+        user_id,
+        {"name": str(payload.get("name") or "").strip(), "description": str(payload.get("description") or "").strip()},
+    )
+    db = get_db()
+    for entry in imported_devices:
+        saved_config = dict(entry["snapshot"]["config"])
+        saved_name = entry["saved_device_name"]
+        cursor = db.execute(
+            """
+            INSERT INTO saved_devices (user_id, name, device_type_id, config)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, saved_name, saved_config["device_type"], json.dumps(saved_config)),
+        )
+        saved_device_id = int(cursor.lastrowid)
+        overrides = normalize_facility_device_overrides(entry)
+        db.execute(
+            """
+            INSERT INTO facility_devices (
+                facility_id,
+                saved_device_id,
+                instance_name_override,
+                host_override,
+                port_override,
+                unit_id_override,
+                device_snapshot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                facility["id"],
+                saved_device_id,
+                overrides["instance_name_override"],
+                overrides["host_override"],
+                overrides["port_override"],
+                overrides["unit_id_override"],
+                json.dumps(entry["snapshot"]),
+            ),
+        )
+    db.execute("UPDATE facilities SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (facility["id"],))
+    db.commit()
+    return fetch_facility_detail_for_user(user_id, int(facility["id"]))
 
 
 def persist_saved_device(user_id: int, payload: dict[str, Any], saved_device_id: int | None = None) -> tuple[dict[str, Any], bool]:
@@ -1107,18 +1648,7 @@ def api_stop(iid: str):
 def api_delete(iid: str):
     if iid not in instances:
         return jsonify({"error": "no such instance"}), 404
-    for hmi_id in list(get_hmi_ids_for_device(iid)):
-        delete_hmi(hmi_id)
-    stop_instance(iid)
-    log_path = LOG_DIR / f"{iid}.log"
-    if log_path.exists():
-        log_path.unlink()
-    for key in ("fault_command_file", "fault_status_file"):
-        path = Path(instances[iid].get(key, ""))
-        if path.exists():
-            path.unlink()
-    del instances[iid]
-    save_registry()
+    delete_instance(iid)
     return jsonify({"ok": True, "cascade": "attached HMI stopped and removed"}), 200
 
 
@@ -1397,6 +1927,187 @@ def api_saved_devices_launch(saved_device_id: int):
     if warning:
         response_body["warning"] = warning
     return jsonify(response_body), 201
+
+
+@app.get("/api/facilities")
+@login_required
+def api_facilities():
+    return jsonify({"facilities": fetch_facilities_for_user(current_user_id())})
+
+
+@app.post("/api/facilities")
+@login_required
+def api_facilities_create():
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        facility = create_facility(current_user_id(), body)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"facility": facility}), 201
+
+
+@app.get("/api/facilities/<int:facility_id>")
+@login_required
+def api_facility_detail(facility_id: int):
+    try:
+        facility = fetch_facility_detail_for_user(current_user_id(), facility_id)
+    except LookupError:
+        return jsonify({"error": "no such facility"}), 404
+    return jsonify({"facility": facility})
+
+
+@app.put("/api/facilities/<int:facility_id>")
+@login_required
+def api_facility_update(facility_id: int):
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        facility = update_facility(current_user_id(), facility_id, body)
+    except LookupError:
+        return jsonify({"error": "no such facility"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"facility": facility})
+
+
+@app.delete("/api/facilities/<int:facility_id>")
+@login_required
+def api_facility_delete(facility_id: int):
+    row = fetch_facility_row_for_user(current_user_id(), facility_id)
+    if row is None:
+        return jsonify({"error": "no such facility"}), 404
+    tagged_instances = [iid for iid, cfg in instances.items() if int(cfg.get("facility_id") or 0) == facility_id]
+    for iid in tagged_instances:
+        delete_instance(iid)
+    get_db().execute("DELETE FROM facilities WHERE id = ? AND user_id = ?", (facility_id, current_user_id()))
+    get_db().commit()
+    return jsonify({"ok": True, "stopped_instances": tagged_instances}), 200
+
+
+@app.post("/api/facilities/<int:facility_id>/devices")
+@login_required
+def api_facility_devices_create(facility_id: int):
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        facility_device = add_facility_device(current_user_id(), facility_id, body)
+    except LookupError as exc:
+        status = 404 if "facility" in str(exc) or "saved device" in str(exc) else 400
+        return jsonify({"error": str(exc)}), status
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"facility_device": facility_device}), 201
+
+
+@app.put("/api/facilities/<int:facility_id>/devices/<int:facility_device_id>")
+@login_required
+def api_facility_devices_update(facility_id: int, facility_device_id: int):
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        facility_device = update_facility_device(current_user_id(), facility_id, facility_device_id, body)
+    except LookupError:
+        return jsonify({"error": "no such facility device"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"facility_device": facility_device}), 200
+
+
+@app.delete("/api/facilities/<int:facility_id>/devices/<int:facility_device_id>")
+@login_required
+def api_facility_devices_delete(facility_id: int, facility_device_id: int):
+    try:
+        delete_facility_device(current_user_id(), facility_id, facility_device_id)
+    except LookupError:
+        return jsonify({"error": "no such facility device"}), 404
+    return jsonify({"ok": True}), 200
+
+
+@app.post("/api/facilities/<int:facility_id>/launch")
+@login_required
+def api_facility_launch(facility_id: int):
+    try:
+        facility = fetch_facility_detail_for_user(current_user_id(), facility_id)
+    except LookupError:
+        return jsonify({"error": "no such facility"}), 404
+    planned, errors = validate_facility_launch(facility)
+    if errors:
+        return jsonify({"error": "facility validation failed", "conflicts": errors}), 409
+    launched: list[dict[str, Any]] = []
+    warnings: list[dict[str, str]] = []
+    try:
+        for config in planned:
+            instance, warning = create_instance_from_config(config)
+            launched.append(instance)
+            if warning:
+                warnings.append({"name": instance["name"], "warning": warning})
+    except ValueError as exc:
+        for launched_instance in launched:
+            delete_instance(str(launched_instance["id"]))
+        return jsonify({"error": str(exc)}), 409
+    return jsonify({"instances": launched, "warnings": warnings}), 201
+
+
+@app.post("/api/facilities/<int:facility_id>/stop")
+@login_required
+def api_facility_stop(facility_id: int):
+    row = fetch_facility_row_for_user(current_user_id(), facility_id)
+    if row is None:
+        return jsonify({"error": "no such facility"}), 404
+    removed: list[str] = []
+    for iid, cfg in list(instances.items()):
+        if int(cfg.get("facility_id") or 0) != facility_id:
+            continue
+        delete_instance(iid)
+        removed.append(iid)
+    return jsonify({"ok": True, "removed": removed}), 200
+
+
+@app.get("/api/facilities/<int:facility_id>/export")
+@login_required
+def api_facility_export(facility_id: int):
+    try:
+        facility = fetch_facility_detail_for_user(current_user_id(), facility_id)
+    except LookupError:
+        return jsonify({"error": "no such facility"}), 404
+    payload = export_facility_payload(facility)
+    filename = re.sub(r"[^A-Za-z0-9_.-]+", "-", facility["name"].strip()) or f"facility-{facility_id}"
+    response = app.response_class(
+        response=json.dumps(payload, indent=2),
+        status=200,
+        mimetype="application/json",
+    )
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}.json"'
+    return response
+
+
+@app.post("/api/facilities/import")
+@login_required
+def api_facility_import():
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "facility file is required"}), 400
+    try:
+        raw = upload.read().decode("utf-8")
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({"error": "uploaded file is not valid JSON"}), 400
+    if not isinstance(payload, dict):
+        return jsonify({"error": "uploaded file must contain a JSON object"}), 400
+    try:
+        facility = import_facility_for_user(current_user_id(), payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"facility": facility}), 201
+
+
+@app.get("/facilities")
+@login_required
+def facilities_page():
+    return render_template("index.html")
+
+
+@app.get("/facilities/<int:facility_id>")
+@login_required
+def facility_detail_page(facility_id: int):
+    return render_template("index.html")
 
 
 @app.get("/")
